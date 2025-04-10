@@ -131,11 +131,35 @@ func (r *RealNFT) CreateBlocklist() error {
     return conn.Flush()
 }
 
+// Функция для преобразования CIDR в диапазон адресов
+func cidrToRange(ipnet *net.IPNet) (net.IP, net.IP) {
+    start := ipnet.IP
+    end := make(net.IP, len(start))
+    copy(end, start)
+
+    // Для IPv4
+    if ipnet.IP.To4() != nil {
+	for i := 0; i < len(start); i++ {
+	    end[i] = start[i] | ^ipnet.Mask[i]
+	}
+	return start.To4(), end.To4()
+    }
+
+    // Для IPv6
+    for i := 0; i < len(start); i++ {
+	end[i] = start[i] | ^ipnet.Mask[i]
+    }
+    return start.To16(), end.To16()
+}
+
+// Обновленные методы AddNetwork и RemoveNetwork
 func (r *RealNFT) AddNetwork(network string) error {
-    ipnet, err := parseNetwork(network)
+    _, ipnet, err := net.ParseCIDR(network)
     if err != nil {
 	return err
     }
+
+    start, end := cidrToRange(ipnet)
 
     conn := &nftables.Conn{}
     table := conn.AddTable(&nftables.Table{
@@ -148,18 +172,23 @@ func (r *RealNFT) AddNetwork(network string) error {
     }
 
     element := nftables.SetElement{
-	Key:         ipnet.IP,
-	Mask:        ipnet.Mask,
+	Key:    start,
+	KeyEnd: end,
     }
 
-    return conn.SetAddElements(set, []nftables.SetElement{element})
+    if err := conn.SetAddElements(set, []nftables.SetElement{element}); err != nil {
+	return err
+    }
+    return conn.Flush()
 }
 
 func (r *RealNFT) RemoveNetwork(network string) error {
-    ipnet, err := parseNetwork(network)
+    _, ipnet, err := net.ParseCIDR(network)
     if err != nil {
 	return err
     }
+
+    start, end := cidrToRange(ipnet)
 
     conn := &nftables.Conn{}
     table := conn.AddTable(&nftables.Table{
@@ -172,11 +201,14 @@ func (r *RealNFT) RemoveNetwork(network string) error {
     }
 
     element := nftables.SetElement{
-	Key:         ipnet.IP,
-	Mask:        ipnet.Mask,
+	Key:    start,
+	KeyEnd: end,
     }
 
-    return conn.SetDeleteElements(set, []nftables.SetElement{element})
+    if err := conn.SetDeleteElements(set, []nftables.SetElement{element}); err != nil {
+	return err
+    }
+    return conn.Flush()
 }
 
 func (r *RealNFT) ListNetworks() ([]string, error) {
@@ -199,7 +231,6 @@ func (r *RealNFT) ListNetworks() ([]string, error) {
     for _, elem := range elements {
 	ipnet := &net.IPNet{
 	    IP:   elem.Key,
-	    Mask: elem.Mask,
 	}
 	networks = append(networks, ipnet.String())
     }
