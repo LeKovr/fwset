@@ -1,287 +1,287 @@
 package main
 
 import (
-    "fmt"
-    "log"
-    "net"
-    "os"
+	"fmt"
+	"log"
+	"net"
+	"os"
 
-    "github.com/google/nftables"
-    "github.com/google/nftables/expr"
+	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
 )
 
 type NFTables interface {
-    CreateBlocklist() error
-    AddNetwork(network string) error
-    RemoveNetwork(network string) error
-    ListNetworks() ([]string, error)
+	CreateBlocklist() error
+	AddNetwork(network string) error
+	RemoveNetwork(network string) error
+	ListNetworks() ([]string, error)
 }
 
 type Firewall struct {
-    handler NFTables
+	handler NFTables
 }
 
 func NewFirewall(handler NFTables) *Firewall {
-    return &Firewall{handler: handler}
+	return &Firewall{handler: handler}
 }
 
 func (fw *Firewall) CreateBlocklist() error {
-    return fw.handler.CreateBlocklist()
+	return fw.handler.CreateBlocklist()
 }
 
 func parseNetwork(network string) (*net.IPNet, error) {
-    _, ipnet, err := net.ParseCIDR(network)
-    if err == nil {
-	return ipnet, nil
-    }
-    
-    ip := net.ParseIP(network)
-    if ip == nil {
-	return nil, fmt.Errorf("invalid IP/CIDR")
-    }
-    
-    if ip.To4() != nil {
-	return &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
-    }
-    return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
+	_, ipnet, err := net.ParseCIDR(network)
+	if err == nil {
+		return ipnet, nil
+	}
+
+	ip := net.ParseIP(network)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid IP/CIDR")
+	}
+
+	if ip.To4() != nil {
+		return &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
 }
 
 func (fw *Firewall) AddNetwork(network string) error {
-    _, err := parseNetwork(network)
-    if err != nil {
-	return err
-    }
-    return fw.handler.AddNetwork(network)
+	_, err := parseNetwork(network)
+	if err != nil {
+		return err
+	}
+	return fw.handler.AddNetwork(network)
 }
 
 func (fw *Firewall) RemoveNetwork(network string) error {
-    _, err := parseNetwork(network)
-    if err != nil {
-	return err
-    }
-    return fw.handler.RemoveNetwork(network)
+	_, err := parseNetwork(network)
+	if err != nil {
+		return err
+	}
+	return fw.handler.RemoveNetwork(network)
 }
 
 func (fw *Firewall) ListNetworks() ([]string, error) {
-    return fw.handler.ListNetworks()
+	return fw.handler.ListNetworks()
 }
 
 type RealNFT struct {
-    tableName string
-    chainName string
-    setName   string
+	tableName string
+	chainName string
+	setName   string
 }
 
 func NewRealNFT() *RealNFT {
-    return &RealNFT{
-	tableName: "myfirewall",
-	chainName: "input",
-	setName:   "blocked_nets",
-    }
+	return &RealNFT{
+		tableName: "myfirewall",
+		chainName: "input",
+		setName:   "blocked_nets",
+	}
 }
 
 func (r *RealNFT) CreateBlocklist() error {
-    conn := &nftables.Conn{}
+	conn := &nftables.Conn{}
 
-    table := conn.AddTable(&nftables.Table{
-	Family: nftables.TableFamilyIPv4,
-	Name:   r.tableName,
-    })
+	table := conn.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   r.tableName,
+	})
 
-    conn.AddChain(&nftables.Chain{
-	Name:     r.chainName,
-	Table:    table,
-	Type:     nftables.ChainTypeFilter,
-	Hooknum:  nftables.ChainHookInput,
-	Priority: nftables.ChainPriorityFilter,
-    })
+	conn.AddChain(&nftables.Chain{
+		Name:     r.chainName,
+		Table:    table,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookInput,
+		Priority: nftables.ChainPriorityFilter,
+	})
 
-    set := &nftables.Set{
-	Name:     r.setName,
-	Table:    table,
-	KeyType:  nftables.TypeIPAddr,
-	Interval: true,
-    }
+	set := &nftables.Set{
+		Name:     r.setName,
+		Table:    table,
+		KeyType:  nftables.TypeIPAddr,
+		Interval: true,
+	}
 
-    if err := conn.AddSet(set, []nftables.SetElement{}); err != nil {
-	return err
-    }
+	if err := conn.AddSet(set, []nftables.SetElement{}); err != nil {
+		return err
+	}
 
-    exprs := []expr.Any{
-	&expr.Payload{
-	    DestRegister: 1,
-	    Base:         expr.PayloadBaseNetworkHeader,
-	    Offset:       12,
-	    Len:          4,
-	},
-	&expr.Lookup{
-	    SourceRegister: 1,
-	    SetName:        r.setName,
-	    SetID:          set.ID,
-	},
-	&expr.Verdict{Kind: expr.VerdictDrop},
-    }
+	exprs := []expr.Any{
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       12,
+			Len:          4,
+		},
+		&expr.Lookup{
+			SourceRegister: 1,
+			SetName:        r.setName,
+			SetID:          set.ID,
+		},
+		&expr.Verdict{Kind: expr.VerdictDrop},
+	}
 
-    conn.AddRule(&nftables.Rule{
-	Table: table,
-	Chain: &nftables.Chain{Name: r.chainName},
-	Exprs: exprs,
-    })
+	conn.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: &nftables.Chain{Name: r.chainName},
+		Exprs: exprs,
+	})
 
-    return conn.Flush()
+	return conn.Flush()
 }
 
 // Функция для преобразования CIDR в диапазон адресов
 func cidrToRange(ipnet *net.IPNet) (net.IP, net.IP) {
-    start := ipnet.IP
-    end := make(net.IP, len(start))
-    copy(end, start)
+	start := ipnet.IP
+	end := make(net.IP, len(start))
+	copy(end, start)
 
-    // Для IPv4
-    if ipnet.IP.To4() != nil {
-	for i := 0; i < len(start); i++ {
-	    end[i] = start[i] | ^ipnet.Mask[i]
+	// Для IPv4
+	if ipnet.IP.To4() != nil {
+		for i := 0; i < len(start); i++ {
+			end[i] = start[i] | ^ipnet.Mask[i]
+		}
+		return start.To4(), end.To4()
 	}
-	return start.To4(), end.To4()
-    }
 
-    // Для IPv6
-    for i := 0; i < len(start); i++ {
-	end[i] = start[i] | ^ipnet.Mask[i]
-    }
-    return start.To16(), end.To16()
+	// Для IPv6
+	for i := 0; i < len(start); i++ {
+		end[i] = start[i] | ^ipnet.Mask[i]
+	}
+	return start.To16(), end.To16()
 }
 
 // Обновленные методы AddNetwork и RemoveNetwork
 func (r *RealNFT) AddNetwork(network string) error {
-    _, ipnet, err := net.ParseCIDR(network)
-    if err != nil {
-	return err
-    }
+	_, ipnet, err := net.ParseCIDR(network)
+	if err != nil {
+		return err
+	}
 
-    start, end := cidrToRange(ipnet)
+	start, end := cidrToRange(ipnet)
 
-    conn := &nftables.Conn{}
-    table := conn.AddTable(&nftables.Table{
-	Family: nftables.TableFamilyIPv4,
-	Name:   r.tableName,
-    })
-    set, err := conn.GetSetByName(table, r.setName)
-    if err != nil {
-	return err
-    }
+	conn := &nftables.Conn{}
+	table := conn.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   r.tableName,
+	})
+	set, err := conn.GetSetByName(table, r.setName)
+	if err != nil {
+		return err
+	}
 
-    element := nftables.SetElement{
-	Key:    start,
-	KeyEnd: end,
-    }
+	element := nftables.SetElement{
+		Key:    start,
+		KeyEnd: end,
+	}
 
-    if err := conn.SetAddElements(set, []nftables.SetElement{element}); err != nil {
-	return err
-    }
-    return conn.Flush()
+	if err := conn.SetAddElements(set, []nftables.SetElement{element}); err != nil {
+		return err
+	}
+	return conn.Flush()
 }
 
 func (r *RealNFT) RemoveNetwork(network string) error {
-    _, ipnet, err := net.ParseCIDR(network)
-    if err != nil {
-	return err
-    }
+	_, ipnet, err := net.ParseCIDR(network)
+	if err != nil {
+		return err
+	}
 
-    start, end := cidrToRange(ipnet)
+	start, end := cidrToRange(ipnet)
 
-    conn := &nftables.Conn{}
-    table := conn.AddTable(&nftables.Table{
-	Family: nftables.TableFamilyIPv4,
-	Name:   r.tableName,
-    })
-    set, err := conn.GetSetByName(table, r.setName)
-    if err != nil {
-	return err
-    }
+	conn := &nftables.Conn{}
+	table := conn.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   r.tableName,
+	})
+	set, err := conn.GetSetByName(table, r.setName)
+	if err != nil {
+		return err
+	}
 
-    element := nftables.SetElement{
-	Key:    start,
-	KeyEnd: end,
-    }
+	element := nftables.SetElement{
+		Key:    start,
+		KeyEnd: end,
+	}
 
-    if err := conn.SetDeleteElements(set, []nftables.SetElement{element}); err != nil {
-	return err
-    }
-    return conn.Flush()
+	if err := conn.SetDeleteElements(set, []nftables.SetElement{element}); err != nil {
+		return err
+	}
+	return conn.Flush()
 }
 
 func (r *RealNFT) ListNetworks() ([]string, error) {
-    conn := &nftables.Conn{}
-    table := conn.AddTable(&nftables.Table{
-	Family: nftables.TableFamilyIPv4,
-	Name:   r.tableName,
-    })
-    set, err := conn.GetSetByName(table, r.setName)
-    if err != nil {
-	return nil, err
-    }
-
-    elements, err := conn.GetSetElements(set)
-    if err != nil {
-	return nil, err
-    }
-
-    var networks []string
-    for _, elem := range elements {
-	ipnet := &net.IPNet{
-	    IP:   elem.Key,
+	conn := &nftables.Conn{}
+	table := conn.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   r.tableName,
+	})
+	set, err := conn.GetSetByName(table, r.setName)
+	if err != nil {
+		return nil, err
 	}
-	networks = append(networks, ipnet.String())
-    }
-    return networks, nil
+
+	elements, err := conn.GetSetElements(set)
+	if err != nil {
+		return nil, err
+	}
+
+	var networks []string
+	for _, elem := range elements {
+		ipnet := &net.IPNet{
+			IP: elem.Key,
+		}
+		networks = append(networks, ipnet.String())
+	}
+	return networks, nil
 }
 
 func main() {
-    fw := NewFirewall(NewRealNFT())
+	fw := NewFirewall(NewRealNFT())
 
-    if len(os.Args) < 2 {
-	fmt.Println("Usage:")
-	fmt.Println("  create - create firewall rules")
-	fmt.Println("  add <IP/CIDR> - add network to blocklist")
-	fmt.Println("  del <IP/CIDR> - remove network from blocklist")
-	fmt.Println("  list - show blocked networks")
-	os.Exit(1)
-    }
+	if len(os.Args) < 2 {
+		fmt.Println("Usage:")
+		fmt.Println("  create - create firewall rules")
+		fmt.Println("  add <IP/CIDR> - add network to blocklist")
+		fmt.Println("  del <IP/CIDR> - remove network from blocklist")
+		fmt.Println("  list - show blocked networks")
+		os.Exit(1)
+	}
 
-    cmd := os.Args[1]
-    switch cmd {
-    case "create":
-	if err := fw.CreateBlocklist(); err != nil {
-	    log.Fatal(err)
+	cmd := os.Args[1]
+	switch cmd {
+	case "create":
+		if err := fw.CreateBlocklist(); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Blocklist created")
+	case "add":
+		if len(os.Args) < 3 {
+			log.Fatal("Network address required")
+		}
+		if err := fw.AddNetwork(os.Args[2]); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Network added")
+	case "del":
+		if len(os.Args) < 3 {
+			log.Fatal("Network address required")
+		}
+		if err := fw.RemoveNetwork(os.Args[2]); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Network removed")
+	case "list":
+		networks, err := fw.ListNetworks()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Blocked networks:")
+		for _, network := range networks {
+			fmt.Println(network)
+		}
+	default:
+		log.Fatal("Unknown command")
 	}
-	fmt.Println("Blocklist created")
-    case "add":
-	if len(os.Args) < 3 {
-	    log.Fatal("Network address required")
-	}
-	if err := fw.AddNetwork(os.Args[2]); err != nil {
-	    log.Fatal(err)
-	}
-	fmt.Println("Network added")
-    case "del":
-	if len(os.Args) < 3 {
-	    log.Fatal("Network address required")
-	}
-	if err := fw.RemoveNetwork(os.Args[2]); err != nil {
-	    log.Fatal(err)
-	}
-	fmt.Println("Network removed")
-    case "list":
-	networks, err := fw.ListNetworks()
-	if err != nil {
-	    log.Fatal(err)
-	}
-	fmt.Println("Blocked networks:")
-	for _, network := range networks {
-	    fmt.Println(network)
-	}
-    default:
-	log.Fatal("Unknown command")
-    }
 }
