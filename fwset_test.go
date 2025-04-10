@@ -38,7 +38,7 @@ func TestFirewallAddIP(t *testing.T) {
     fw := NewFirewall(mockNFT)
 
     testIP := "192.168.1.1"
-    expectedIP := net.ParseIP(testIP).To4()
+    expectedIP := net.ParseIP(testIP) //.To4()
 
     mockNFT.On("AddIP", expectedIP).Return(nil)
 
@@ -61,7 +61,7 @@ func TestFirewallRemoveIP(t *testing.T) {
     fw := NewFirewall(mockNFT)
 
     testIP := "10.0.0.1"
-    expectedIP := net.ParseIP(testIP).To4()
+    expectedIP := net.ParseIP(testIP) //.To4()
 
     mockNFT.On("RemoveIP", expectedIP).Return(nil)
 
