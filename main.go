@@ -10,170 +10,213 @@ import (
     "github.com/google/nftables/expr"
 )
 
-const (
-    tableName = "myfirewall"
-    chainName = "input"
-    setName   = "blocked_ips"
-)
+// Интерфейс для работы с nftables
+type NFTables interface {
+    CreateBlocklist() error
+    AddIP(ip net.IP) error
+    RemoveIP(ip net.IP) error
+    ListIPs() ([]net.IP, error)
+}
 
-var nftConn NFT = &nftables.Conn{}
+type Firewall struct {
+    handler NFTables
+}
 
-func createBlocklist() {
-    conn := nftConn
+func NewFirewall(handler NFTables) *Firewall {
+    return &Firewall{handler: handler}
+}
 
-    // Создание таблицы
+func (fw *Firewall) CreateBlocklist() error {
+    return fw.handler.CreateBlocklist()
+}
+
+func (fw *Firewall) AddIP(ipStr string) error {
+    ip := net.ParseIP(ipStr)
+    if ip == nil || ip.To4() == nil {
+	return fmt.Errorf("invalid IPv4 address")
+    }
+    return fw.handler.AddIP(ip)
+}
+
+func (fw *Firewall) RemoveIP(ipStr string) error {
+    ip := net.ParseIP(ipStr)
+    if ip == nil || ip.To4() == nil {
+	return fmt.Errorf("invalid IPv4 address")
+    }
+    return fw.handler.RemoveIP(ip)
+}
+
+func (fw *Firewall) ListIPs() ([]string, error) {
+    ips, err := fw.handler.ListIPs()
+    if err != nil {
+	return nil, err
+    }
+    
+    result := make([]string, len(ips))
+    for i, ip := range ips {
+	result[i] = ip.String()
+    }
+    return result, nil
+}
+
+// Реальная реализация для работы с nftables
+type RealNFT struct {
+    tableName string
+    chainName string
+    setName   string
+}
+
+func NewRealNFT() *RealNFT {
+    return &RealNFT{
+	tableName: "myfirewall",
+	chainName: "input",
+	setName:   "blocked_ips",
+    }
+}
+
+func (r *RealNFT) CreateBlocklist() error {
+    conn := nftables.Conn{}
+
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
-	Name:   tableName,
+	Name:   r.tableName,
     })
 
-    // Создание цепочки
     conn.AddChain(&nftables.Chain{
-	Name:     chainName,
+	Name:     r.chainName,
 	Table:    table,
 	Type:     nftables.ChainTypeFilter,
 	Hooknum:  nftables.ChainHookInput,
 	Priority: nftables.ChainPriorityFilter,
     })
 
-    // Создание множества для IP-адресов
     set := &nftables.Set{
-	Name:    setName,
+	Name:    r.setName,
 	Table:   table,
 	KeyType: nftables.TypeIPAddr,
     }
     if err := conn.AddSet(set, []nftables.SetElement{}); err != nil {
-	log.Fatalf("Error creating set: %v", err)
+	return err
     }
 
-    // Добавление правила для блокировки
     exprs := []expr.Any{
-	// Загрузка исходного IP-адреса
 	&expr.Payload{
 	    DestRegister: 1,
 	    Base:         expr.PayloadBaseNetworkHeader,
 	    Offset:       12,
 	    Len:          4,
 	},
-	// Проверка наличия в множестве
 	&expr.Lookup{
 	    SourceRegister: 1,
-	    SetName:       setName,
+	    SetName:       r.setName,
 	    SetID:         set.ID,
 	},
-	// Блокировка пакета
-	&expr.Verdict{
-	    Kind: expr.VerdictDrop,
-	},
+	&expr.Verdict{Kind: expr.VerdictDrop},
     }
 
     conn.AddRule(&nftables.Rule{
 	Table: table,
-	Chain: &nftables.Chain{Name: chainName},
+	Chain: &nftables.Chain{Name: r.chainName},
 	Exprs: exprs,
     })
 
-    if err := conn.Flush(); err != nil {
-	log.Fatalf("Error applying rules: %v", err)
-    }
-
-    fmt.Println("Блокирующие правила успешно созданы")
+    return conn.Flush()
 }
 
-func modifyIP(ip string, add bool) {
-    conn := nftConn
-
+func (r *RealNFT) AddIP(ip net.IP) error {
+    conn := nftables.Conn{}
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
-	Name:   tableName,
+	Name:   r.tableName,
     })
-
-    set, err := conn.GetSetByName(table, setName)
+    set, err := conn.GetSetByName(table, r.setName)
     if err != nil {
-	log.Fatalf("Error getting set: %v", err)
+	return err
     }
-
-    parsedIP := net.ParseIP(ip)
-    if parsedIP == nil || parsedIP.To4() == nil {
-	log.Fatalf("Invalid IPv4 address: %s", ip)
-    }
-
-    element := nftables.SetElement{Key: parsedIP.To4()}
-
-    var op func(*nftables.Set, []nftables.SetElement) error
-    if add {
-	op = conn.SetAddElements
-    } else {
-	op = conn.SetDeleteElements
-    }
-
-    if err := op(set, []nftables.SetElement{element}); err != nil {
-	log.Fatalf("Error modifying set: %v", err)
-    }
-
-    if err := conn.Flush(); err != nil {
-	log.Fatalf("Error applying changes: %v", err)
-    }
-
-    action := "добавлен"
-    if !add {
-	action = "удалён"
-    }
-    fmt.Printf("IP %s успешно %s\n", ip, action)
+    return conn.SetAddElements(set, []nftables.SetElement{{Key: ip.To4()}})
 }
 
-func listBlockedIPs() {
-    conn := nftConn
-
+func (r *RealNFT) RemoveIP(ip net.IP) error {
+    conn := nftables.Conn{}
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
-	Name:   tableName,
+	Name:   r.tableName,
     })
-
-    set, err := conn.GetSetByName(table, setName)
+    set, err := conn.GetSetByName(table, r.setName)
     if err != nil {
-	log.Fatalf("Error getting set: %v", err)
+	return err
     }
+    return conn.SetDeleteElements(set, []nftables.SetElement{{Key: ip.To4()}})
+}
 
+func (r *RealNFT) ListIPs() ([]net.IP, error) {
+    conn := nftables.Conn{}
+    table := conn.AddTable(&nftables.Table{
+	Family: nftables.TableFamilyIPv4,
+	Name:   r.tableName,
+    })
+    set, err := conn.GetSetByName(table, r.setName)
+    if err != nil {
+	return nil, err
+    }
+    
     elements, err := conn.GetSetElements(set)
     if err != nil {
-	log.Fatalf("Error getting elements: %v", err)
+	return nil, err
     }
 
-    fmt.Println("Заблокированные IP-адреса:")
-    for _, elem := range elements {
-	ip := net.IP(elem.Key)
-	fmt.Println(ip)
+    ips := make([]net.IP, len(elements))
+    for i, e := range elements {
+	ips[i] = e.Key
     }
+    return ips, nil
 }
 
 func main() {
+    fw := NewFirewall(NewRealNFT())
+
     if len(os.Args) < 2 {
-	fmt.Println("Использование:")
-	fmt.Println("  create - создать таблицу и правила")
-	fmt.Println("  add <IP> - добавить IP в блокировку")
-	fmt.Println("  del <IP> - удалить IP из блокировки")
-	fmt.Println("  list - показать заблокированные IP")
+	fmt.Println("Usage:")
+	fmt.Println("  create - create firewall rules")
+	fmt.Println("  add <IP> - add IP to blocklist")
+	fmt.Println("  del <IP> - remove IP from blocklist")
+	fmt.Println("  list - show blocked IPs")
 	os.Exit(1)
     }
 
     cmd := os.Args[1]
     switch cmd {
     case "create":
-	createBlocklist()
+	if err := fw.CreateBlocklist(); err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Println("Blocklist created")
     case "add":
 	if len(os.Args) < 3 {
-	    log.Fatal("Требуется указать IP-адрес")
+	    log.Fatal("IP address required")
 	}
-	modifyIP(os.Args[2], true)
+	if err := fw.AddIP(os.Args[2]); err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Println("IP added")
     case "del":
 	if len(os.Args) < 3 {
-	    log.Fatal("Требуется указать IP-адрес")
+	    log.Fatal("IP address required")
 	}
-	modifyIP(os.Args[2], false)
+	if err := fw.RemoveIP(os.Args[2]); err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Println("IP removed")
     case "list":
-	listBlockedIPs()
+	ips, err := fw.ListIPs()
+	if err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Println("Blocked IPs:")
+	for _, ip := range ips {
+	    fmt.Println(ip)
+	}
     default:
-	log.Fatal("Неизвестная команда")
+	log.Fatal("Unknown command")
     }
 }
