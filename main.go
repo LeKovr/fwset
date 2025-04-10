@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -31,9 +32,9 @@ func (fw *Firewall) CreateBlocklist() error {
 }
 
 func parseNetwork(network string) (*net.IPNet, error) {
-	_, ipnet, err := net.ParseCIDR(network)
-	if err == nil {
-		return ipnet, nil
+	if strings.Contains(network, "/") {
+		_, ipnet, err := net.ParseCIDR(network)
+		return ipnet, err
 	}
 
 	ip := net.ParseIP(network)
@@ -48,18 +49,10 @@ func parseNetwork(network string) (*net.IPNet, error) {
 }
 
 func (fw *Firewall) AddNetwork(network string) error {
-	_, err := parseNetwork(network)
-	if err != nil {
-		return err
-	}
 	return fw.handler.AddNetwork(network)
 }
 
 func (fw *Firewall) RemoveNetwork(network string) error {
-	_, err := parseNetwork(network)
-	if err != nil {
-		return err
-	}
 	return fw.handler.RemoveNetwork(network)
 }
 
@@ -72,15 +65,20 @@ type RealNFT struct {
 	chainName string
 	setName   string
 	conn      NFT
+	isAccept  bool
 }
 
-func NewRealNFT() *RealNFT {
+func NewRealNFT() (*RealNFT, error) {
+	conn, err := nftables.New()
+	if err != nil {
+		return nil, err
+	}
 	return &RealNFT{
 		tableName: "myfirewall",
 		chainName: "input",
 		setName:   "blocked_nets",
-		conn:      &nftables.Conn{},
-	}
+		conn:      conn, //&nftables.Conn{},
+	}, nil
 }
 
 func (r *RealNFT) CreateBlocklist() error {
@@ -95,7 +93,7 @@ func (r *RealNFT) CreateBlocklist() error {
 		Name:     r.chainName,
 		Table:    table,
 		Type:     nftables.ChainTypeFilter,
-		Hooknum:  nftables.ChainHookInput,
+		Hooknum:  nftables.ChainHookInput, // TODO: проверить ChainHookIngress
 		Priority: nftables.ChainPriorityFilter,
 	})
 
@@ -104,10 +102,21 @@ func (r *RealNFT) CreateBlocklist() error {
 		Table:    table,
 		KeyType:  nftables.TypeIPAddr,
 		Interval: true,
+		// AutoMerge: true, // TODO: найти кейс, где это нужно
 	}
-
-	if err := conn.AddSet(set, []nftables.SetElement{}); err != nil {
+	// See https://github.com/google/nftables/issues/247#issuecomment-1813787205
+	elements := []nftables.SetElement{
+		{
+			Key:         []byte{0x00, 0x00, 0x00, 0x00},
+			IntervalEnd: true,
+		},
+	}
+	if err := conn.AddSet(set, elements); err != nil {
 		return err
+	}
+	kind := expr.VerdictDrop
+	if r.isAccept {
+		kind = expr.VerdictAccept
 	}
 
 	exprs := []expr.Any{
@@ -122,7 +131,18 @@ func (r *RealNFT) CreateBlocklist() error {
 			SetName:        r.setName,
 			SetID:          set.ID,
 		},
-		&expr.Verdict{Kind: expr.VerdictDrop},
+		/*
+		   TODO: Что это добавит?
+		           &expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		           &expr.Cmp{
+		                   Op:       expr.CmpOpEq,
+		                   Register: 1,
+		                   Data:     []byte{unix.IPPROTO_TCP},
+		           },
+		*/
+		&expr.Counter{}, // TODO: вынести в config
+		&expr.Log{},     // TODO: вынести в config
+		&expr.Verdict{Kind: kind},
 	}
 
 	conn.AddRule(&nftables.Rule{
@@ -135,34 +155,37 @@ func (r *RealNFT) CreateBlocklist() error {
 }
 
 // Функция для преобразования CIDR в диапазон адресов
-func cidrToRange(ipnet *net.IPNet) (net.IP, net.IP) {
-	start := ipnet.IP
-	end := make(net.IP, len(start))
-	copy(end, start)
-
-	// Для IPv4
-	if ipnet.IP.To4() != nil {
-		for i := 0; i < len(start); i++ {
-			end[i] = start[i] | ^ipnet.Mask[i]
+func cidrToRange(network string) (net.IP, net.IP, error) {
+	var firstIP, lastIP net.IP
+	if strings.Contains(network, "-") {
+		ips := strings.Split(network, "-")
+		firstIP = net.ParseIP(ips[0])
+		if firstIP == nil {
+			return nil, nil, fmt.Errorf("invalid First IP")
 		}
-		return start.To4(), end.To4()
+		lastIP = net.ParseIP(ips[1])
+		if lastIP == nil {
+			return nil, nil, fmt.Errorf("invalid Last IP")
+		}
+	} else {
+		ipnet, err := parseNetwork(network) // добавим маску, если не было
+		if err != nil {
+			return nil, nil, err
+		}
+		firstIP, lastIP, err = nftables.NetFirstAndLastIP(ipnet.String())
+		if err != nil {
+			return nil, nil, err
+		}
 	}
-
-	// Для IPv6
-	for i := 0; i < len(start); i++ {
-		end[i] = start[i] | ^ipnet.Mask[i]
-	}
-	return start.To16(), end.To16()
+	return firstIP, lastIP, nil
 }
 
 func (r *RealNFT) ModifyIP(network string, add bool) error {
-
-	_, ipnet, err := net.ParseCIDR(network)
+	firstIP, lastIP, err := cidrToRange(network)
 	if err != nil {
 		return err
 	}
-
-	start, end := cidrToRange(ipnet)
+	lastIP = nextIP(lastIP) // для диапазона нужен следующий за крайним ip
 
 	conn := r.conn
 	table := conn.AddTable(&nftables.Table{
@@ -174,19 +197,19 @@ func (r *RealNFT) ModifyIP(network string, add bool) error {
 		return err
 	}
 
-	element := nftables.SetElement{
-		Key:    start,
-		KeyEnd: end,
+	elements := []nftables.SetElement{
+		{Key: []byte(firstIP.To4())},
+		{Key: lastIP.To4(), IntervalEnd: true},
 	}
+
 	if add {
-		if err := conn.SetAddElements(set, []nftables.SetElement{element}); err != nil {
+		if err := conn.SetAddElements(set, elements); err != nil {
 			return err
 		}
 	} else {
-		if err := conn.SetDeleteElements(set, []nftables.SetElement{element}); err != nil {
+		if err := conn.SetDeleteElements(set, elements); err != nil {
 			return err
 		}
-
 	}
 
 	return conn.Flush()
@@ -216,18 +239,35 @@ func (r *RealNFT) ListNetworks() ([]string, error) {
 		return nil, err
 	}
 
+	var end net.IP
 	var networks []string
 	for _, elem := range elements {
-		ipnet := &net.IPNet{
-			IP: elem.Key,
+		// Преобразование обратно в CIDR
+		if elem.IntervalEnd {
+			end = net.IP(elem.Key)
+			// следний элемент - 0.0.0.0 с IntervalEnd, будетнеявно проигнорирован
+			continue
 		}
-		networks = append(networks, ipnet.String())
+		start := net.IP(elem.Key)
+		end = previousIP(end)
+		//fmt.Printf("%s .. %s\n", start, end)
+
+		nets, err := IpRangeToCIDR(nil, start.String(), end.String())
+		if err != nil {
+			// TODO: log err
+			continue
+		}
+		if len(nets) > 1 {
+			// для нас диапазон будет лучше
+			nets = []string{fmt.Sprintf("%s-%s", start, end)}
+		}
+		networks = append(networks, nets...)
 	}
+
 	return networks, nil
 }
 
 func main() {
-	fw := NewFirewall(NewRealNFT())
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
@@ -237,6 +277,11 @@ func main() {
 		fmt.Println("  list - show blocked networks")
 		os.Exit(1)
 	}
+	nft, err := NewRealNFT()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fw := NewFirewall(nft)
 
 	cmd := os.Args[1]
 	switch cmd {
@@ -273,4 +318,75 @@ func main() {
 	default:
 		log.Fatal("Unknown command")
 	}
+}
+
+func nextIP(ip net.IP) net.IP {
+	/*      ip := net.ParseIP(ipStr)
+	        if ip == nil {
+	                return "", fmt.Errorf("invalid IP address: %s", ipStr)
+	        }
+	*/
+	// Определяем версию IP и нормализуем представление
+	var bytes []byte
+	if v4 := ip.To4(); v4 != nil {
+		bytes = make([]byte, len(v4))
+		copy(bytes, v4)
+	} else {
+		v6 := ip.To16()
+		bytes = make([]byte, len(v6))
+		copy(bytes, v6)
+	}
+
+	// Инкрементируем IP-адрес
+	carry := 1
+	for i := len(bytes) - 1; i >= 0; i-- {
+		sum := int(bytes[i]) + carry
+		bytes[i] = byte(sum % 256)
+		carry = sum / 256
+		if carry == 0 {
+			break
+		}
+	}
+
+	if carry != 0 {
+		// return nil, fmt.Errorf("IP address overflow")
+		return nil
+	}
+
+	return net.IP(bytes)
+}
+
+func previousIP(ip net.IP) net.IP {
+	// Определяем версию IP и нормализуем представление
+	var bytes []byte
+	if v4 := ip.To4(); v4 != nil {
+		bytes = make([]byte, len(v4))
+		copy(bytes, v4)
+	} else {
+		v6 := ip.To16()
+		bytes = make([]byte, len(v6))
+		copy(bytes, v6)
+	}
+
+	// Декрементируем IP-адрес
+	borrow := 1
+	for i := len(bytes) - 1; i >= 0; i-- {
+		current := int(bytes[i]) - borrow
+		if current >= 0 {
+			bytes[i] = byte(current)
+			borrow = 0
+			break
+		}
+		// Обрабатываем заем
+		bytes[i] = 255
+		borrow = 1
+	}
+
+	// Проверяем переполнение (все байты стали 255)
+	if borrow != 0 {
+
+		//return "", fmt.Errorf("IP address underflow")
+		return nil
+	}
+	return net.IP(bytes)
 }
