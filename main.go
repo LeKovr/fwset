@@ -10,12 +10,11 @@ import (
     "github.com/google/nftables/expr"
 )
 
-// Интерфейс для работы с nftables
 type NFTables interface {
     CreateBlocklist() error
-    AddIP(ip net.IP) error
-    RemoveIP(ip net.IP) error
-    ListIPs() ([]net.IP, error)
+    AddNetwork(network string) error
+    RemoveNetwork(network string) error
+    ListNetworks() ([]string, error)
 }
 
 type Firewall struct {
@@ -30,36 +29,43 @@ func (fw *Firewall) CreateBlocklist() error {
     return fw.handler.CreateBlocklist()
 }
 
-func (fw *Firewall) AddIP(ipStr string) error {
-    ip := net.ParseIP(ipStr)
-    if ip == nil || ip.To4() == nil {
-	return fmt.Errorf("invalid IPv4 address")
-    }
-    return fw.handler.AddIP(ip)
-}
-
-func (fw *Firewall) RemoveIP(ipStr string) error {
-    ip := net.ParseIP(ipStr)
-    if ip == nil || ip.To4() == nil {
-	return fmt.Errorf("invalid IPv4 address")
-    }
-    return fw.handler.RemoveIP(ip)
-}
-
-func (fw *Firewall) ListIPs() ([]string, error) {
-    ips, err := fw.handler.ListIPs()
-    if err != nil {
-	return nil, err
+func parseNetwork(network string) (*net.IPNet, error) {
+    _, ipnet, err := net.ParseCIDR(network)
+    if err == nil {
+	return ipnet, nil
     }
     
-    result := make([]string, len(ips))
-    for i, ip := range ips {
-	result[i] = ip.String()
+    ip := net.ParseIP(network)
+    if ip == nil {
+	return nil, fmt.Errorf("invalid IP/CIDR")
     }
-    return result, nil
+    
+    if ip.To4() != nil {
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}, nil
+    }
+    return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
 }
 
-// Реальная реализация для работы с nftables
+func (fw *Firewall) AddNetwork(network string) error {
+    _, err := parseNetwork(network)
+    if err != nil {
+	return err
+    }
+    return fw.handler.AddNetwork(network)
+}
+
+func (fw *Firewall) RemoveNetwork(network string) error {
+    _, err := parseNetwork(network)
+    if err != nil {
+	return err
+    }
+    return fw.handler.RemoveNetwork(network)
+}
+
+func (fw *Firewall) ListNetworks() ([]string, error) {
+    return fw.handler.ListNetworks()
+}
+
 type RealNFT struct {
     tableName string
     chainName string
@@ -70,12 +76,12 @@ func NewRealNFT() *RealNFT {
     return &RealNFT{
 	tableName: "myfirewall",
 	chainName: "input",
-	setName:   "blocked_ips",
+	setName:   "blocked_nets",
     }
 }
 
 func (r *RealNFT) CreateBlocklist() error {
-    conn := nftables.Conn{}
+    conn := &nftables.Conn{}
 
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
@@ -91,10 +97,12 @@ func (r *RealNFT) CreateBlocklist() error {
     })
 
     set := &nftables.Set{
-	Name:    r.setName,
-	Table:   table,
-	KeyType: nftables.TypeIPAddr,
+	Name:     r.setName,
+	Table:    table,
+	KeyType:  nftables.TypeIPAddr,
+	Interval: true,
     }
+
     if err := conn.AddSet(set, []nftables.SetElement{}); err != nil {
 	return err
     }
@@ -108,8 +116,8 @@ func (r *RealNFT) CreateBlocklist() error {
 	},
 	&expr.Lookup{
 	    SourceRegister: 1,
-	    SetName:       r.setName,
-	    SetID:         set.ID,
+	    SetName:        r.setName,
+	    SetID:          set.ID,
 	},
 	&expr.Verdict{Kind: expr.VerdictDrop},
     }
@@ -123,8 +131,13 @@ func (r *RealNFT) CreateBlocklist() error {
     return conn.Flush()
 }
 
-func (r *RealNFT) AddIP(ip net.IP) error {
-    conn := nftables.Conn{}
+func (r *RealNFT) AddNetwork(network string) error {
+    ipnet, err := parseNetwork(network)
+    if err != nil {
+	return err
+    }
+
+    conn := &nftables.Conn{}
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
 	Name:   r.tableName,
@@ -133,11 +146,22 @@ func (r *RealNFT) AddIP(ip net.IP) error {
     if err != nil {
 	return err
     }
-    return conn.SetAddElements(set, []nftables.SetElement{{Key: ip.To4()}})
+
+    element := nftables.SetElement{
+	Key:         ipnet.IP,
+	Mask:        ipnet.Mask,
+    }
+
+    return conn.SetAddElements(set, []nftables.SetElement{element})
 }
 
-func (r *RealNFT) RemoveIP(ip net.IP) error {
-    conn := nftables.Conn{}
+func (r *RealNFT) RemoveNetwork(network string) error {
+    ipnet, err := parseNetwork(network)
+    if err != nil {
+	return err
+    }
+
+    conn := &nftables.Conn{}
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
 	Name:   r.tableName,
@@ -146,11 +170,17 @@ func (r *RealNFT) RemoveIP(ip net.IP) error {
     if err != nil {
 	return err
     }
-    return conn.SetDeleteElements(set, []nftables.SetElement{{Key: ip.To4()}})
+
+    element := nftables.SetElement{
+	Key:         ipnet.IP,
+	Mask:        ipnet.Mask,
+    }
+
+    return conn.SetDeleteElements(set, []nftables.SetElement{element})
 }
 
-func (r *RealNFT) ListIPs() ([]net.IP, error) {
-    conn := nftables.Conn{}
+func (r *RealNFT) ListNetworks() ([]string, error) {
+    conn := &nftables.Conn{}
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
 	Name:   r.tableName,
@@ -159,17 +189,21 @@ func (r *RealNFT) ListIPs() ([]net.IP, error) {
     if err != nil {
 	return nil, err
     }
-    
+
     elements, err := conn.GetSetElements(set)
     if err != nil {
 	return nil, err
     }
 
-    ips := make([]net.IP, len(elements))
-    for i, e := range elements {
-	ips[i] = e.Key
+    var networks []string
+    for _, elem := range elements {
+	ipnet := &net.IPNet{
+	    IP:   elem.Key,
+	    Mask: elem.Mask,
+	}
+	networks = append(networks, ipnet.String())
     }
-    return ips, nil
+    return networks, nil
 }
 
 func main() {
@@ -178,9 +212,9 @@ func main() {
     if len(os.Args) < 2 {
 	fmt.Println("Usage:")
 	fmt.Println("  create - create firewall rules")
-	fmt.Println("  add <IP> - add IP to blocklist")
-	fmt.Println("  del <IP> - remove IP from blocklist")
-	fmt.Println("  list - show blocked IPs")
+	fmt.Println("  add <IP/CIDR> - add network to blocklist")
+	fmt.Println("  del <IP/CIDR> - remove network from blocklist")
+	fmt.Println("  list - show blocked networks")
 	os.Exit(1)
     }
 
@@ -193,28 +227,28 @@ func main() {
 	fmt.Println("Blocklist created")
     case "add":
 	if len(os.Args) < 3 {
-	    log.Fatal("IP address required")
+	    log.Fatal("Network address required")
 	}
-	if err := fw.AddIP(os.Args[2]); err != nil {
+	if err := fw.AddNetwork(os.Args[2]); err != nil {
 	    log.Fatal(err)
 	}
-	fmt.Println("IP added")
+	fmt.Println("Network added")
     case "del":
 	if len(os.Args) < 3 {
-	    log.Fatal("IP address required")
+	    log.Fatal("Network address required")
 	}
-	if err := fw.RemoveIP(os.Args[2]); err != nil {
+	if err := fw.RemoveNetwork(os.Args[2]); err != nil {
 	    log.Fatal(err)
 	}
-	fmt.Println("IP removed")
+	fmt.Println("Network removed")
     case "list":
-	ips, err := fw.ListIPs()
+	networks, err := fw.ListNetworks()
 	if err != nil {
 	    log.Fatal(err)
 	}
-	fmt.Println("Blocked IPs:")
-	for _, ip := range ips {
-	    fmt.Println(ip)
+	fmt.Println("Blocked networks:")
+	for _, network := range networks {
+	    fmt.Println(network)
 	}
     default:
 	log.Fatal("Unknown command")

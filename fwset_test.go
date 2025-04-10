@@ -8,92 +8,92 @@ import (
     "github.com/stretchr/testify/mock"
 )
 
-// MockNFT реализует интерфейс NFTables для тестов
 type MockNFT struct {
     mock.Mock
 }
 
 func (m *MockNFT) CreateBlocklist() error {
+    return m.Called().Error(0)
+}
+
+func (m *MockNFT) AddNetwork(network string) error {
+    return m.Called(network).Error(0)
+}
+
+func (m *MockNFT) RemoveNetwork(network string) error {
+    return m.Called(network).Error(0)
+}
+
+func (m *MockNFT) ListNetworks() ([]string, error) {
     args := m.Called()
-    return args.Error(0)
+    return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *MockNFT) AddIP(ip net.IP) error {
-    args := m.Called(ip)
-    return args.Error(0)
-}
-
-func (m *MockNFT) RemoveIP(ip net.IP) error {
-    args := m.Called(ip)
-    return args.Error(0)
-}
-
-func (m *MockNFT) ListIPs() ([]net.IP, error) {
-    args := m.Called()
-    return args.Get(0).([]net.IP), args.Error(1)
-}
-
-func TestFirewallAddIP(t *testing.T) {
-    mockNFT := new(MockNFT)
-    fw := NewFirewall(mockNFT)
-
-    testIP := "192.168.1.1"
-    expectedIP := net.ParseIP(testIP) //.To4()
-
-    mockNFT.On("AddIP", expectedIP).Return(nil)
-
-    err := fw.AddIP(testIP)
-    assert.NoError(t, err)
-    mockNFT.AssertExpectations(t)
-}
-
-func TestFirewallAddInvalidIP(t *testing.T) {
-    mockNFT := new(MockNFT)
-    fw := NewFirewall(mockNFT)
-
-    err := fw.AddIP("invalid-ip")
-    assert.Error(t, err)
-    mockNFT.AssertNotCalled(t, "AddIP")
-}
-
-func TestFirewallRemoveIP(t *testing.T) {
-    mockNFT := new(MockNFT)
-    fw := NewFirewall(mockNFT)
-
-    testIP := "10.0.0.1"
-    expectedIP := net.ParseIP(testIP) //.To4()
-
-    mockNFT.On("RemoveIP", expectedIP).Return(nil)
-
-    err := fw.RemoveIP(testIP)
-    assert.NoError(t, err)
-    mockNFT.AssertExpectations(t)
-}
-
-func TestFirewallListIPs(t *testing.T) {
-    mockNFT := new(MockNFT)
-    fw := NewFirewall(mockNFT)
-
-    expectedIPs := []net.IP{
-	net.ParseIP("192.168.1.1").To4(),
-	net.ParseIP("10.0.0.2").To4(),
+func TestAddNetwork(t *testing.T) {
+    tests := []struct {
+	name     string
+	input    string
+	wantErr  bool
+	mockCall bool
+    }{
+	{"Valid IP", "192.168.1.1", false, true},
+	{"Valid CIDR", "10.0.0.0/24", false, true},
+	{"Invalid", "invalid", true, false},
     }
 
-    mockNFT.On("ListIPs").Return(expectedIPs, nil)
+    for _, tt := range tests {
+	t.Run(tt.name, func(t *testing.T) {
+	    mockNFT := new(MockNFT)
+	    fw := NewFirewall(mockNFT)
 
-    ips, err := fw.ListIPs()
-    assert.NoError(t, err)
-    assert.Equal(t, []string{"192.168.1.1", "10.0.0.2"}, ips)
-    mockNFT.AssertExpectations(t)
+	    if tt.mockCall {
+		mockNFT.On("AddNetwork", tt.input).Return(nil)
+	    }
+
+	    err := fw.AddNetwork(tt.input)
+	    if tt.wantErr {
+		assert.Error(t, err)
+	    } else {
+		assert.NoError(t, err)
+	    }
+	    mockNFT.AssertExpectations(t)
+	})
+    }
 }
 
-func TestCreateBlocklist(t *testing.T) {
+func TestListNetworks(t *testing.T) {
     mockNFT := new(MockNFT)
     fw := NewFirewall(mockNFT)
 
-    mockNFT.On("CreateBlocklist").Return(nil)
+    expected := []string{"192.168.1.1/32", "10.0.0.0/24"}
+    mockNFT.On("ListNetworks").Return(expected, nil)
 
-    err := fw.CreateBlocklist()
+    result, err := fw.ListNetworks()
     assert.NoError(t, err)
-    mockNFT.AssertExpectations(t)
+    assert.Equal(t, expected, result)
+}
+
+func TestParseNetwork(t *testing.T) {
+    tests := []struct {
+	input    string
+	expected string
+	wantErr  bool
+    }{
+	{"192.168.1.1", "192.168.1.1/32", false},
+	{"10.0.0.0/24", "10.0.0.0/24", false},
+	{"invalid", "", true},
+	{"2001:db8::/32", "2001:db8::/32", false},
+    }
+
+    for _, tt := range tests {
+	t.Run(tt.input, func(t *testing.T) {
+	    ipnet, err := parseNetwork(tt.input)
+	    if tt.wantErr {
+		assert.Error(t, err)
+		return
+	    }
+	    assert.NoError(t, err)
+	    assert.Equal(t, tt.expected, ipnet.String())
+	})
+    }
 }
