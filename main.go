@@ -12,6 +12,7 @@ import (
 
 type NFTables interface {
 	CreateBlocklist() error
+	ModifyIP(network string, add bool) error
 	AddNetwork(network string) error
 	RemoveNetwork(network string) error
 	ListNetworks() ([]string, error)
@@ -70,6 +71,7 @@ type RealNFT struct {
 	tableName string
 	chainName string
 	setName   string
+	conn      NFT
 }
 
 func NewRealNFT() *RealNFT {
@@ -77,11 +79,12 @@ func NewRealNFT() *RealNFT {
 		tableName: "myfirewall",
 		chainName: "input",
 		setName:   "blocked_nets",
+		conn:      &nftables.Conn{},
 	}
 }
 
 func (r *RealNFT) CreateBlocklist() error {
-	conn := &nftables.Conn{}
+	conn := r.conn
 
 	table := conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
@@ -152,8 +155,8 @@ func cidrToRange(ipnet *net.IPNet) (net.IP, net.IP) {
 	return start.To16(), end.To16()
 }
 
-// Обновленные методы AddNetwork и RemoveNetwork
-func (r *RealNFT) AddNetwork(network string) error {
+func (r *RealNFT) ModifyIP(network string, add bool) error {
+
 	_, ipnet, err := net.ParseCIDR(network)
 	if err != nil {
 		return err
@@ -161,7 +164,7 @@ func (r *RealNFT) AddNetwork(network string) error {
 
 	start, end := cidrToRange(ipnet)
 
-	conn := &nftables.Conn{}
+	conn := r.conn
 	table := conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   r.tableName,
@@ -175,44 +178,30 @@ func (r *RealNFT) AddNetwork(network string) error {
 		Key:    start,
 		KeyEnd: end,
 	}
+	if add {
+		if err := conn.SetAddElements(set, []nftables.SetElement{element}); err != nil {
+			return err
+		}
+	} else {
+		if err := conn.SetDeleteElements(set, []nftables.SetElement{element}); err != nil {
+			return err
+		}
 
-	if err := conn.SetAddElements(set, []nftables.SetElement{element}); err != nil {
-		return err
 	}
+
 	return conn.Flush()
+}
+
+func (r *RealNFT) AddNetwork(network string) error {
+	return r.ModifyIP(network, true)
 }
 
 func (r *RealNFT) RemoveNetwork(network string) error {
-	_, ipnet, err := net.ParseCIDR(network)
-	if err != nil {
-		return err
-	}
-
-	start, end := cidrToRange(ipnet)
-
-	conn := &nftables.Conn{}
-	table := conn.AddTable(&nftables.Table{
-		Family: nftables.TableFamilyIPv4,
-		Name:   r.tableName,
-	})
-	set, err := conn.GetSetByName(table, r.setName)
-	if err != nil {
-		return err
-	}
-
-	element := nftables.SetElement{
-		Key:    start,
-		KeyEnd: end,
-	}
-
-	if err := conn.SetDeleteElements(set, []nftables.SetElement{element}); err != nil {
-		return err
-	}
-	return conn.Flush()
+	return r.ModifyIP(network, false)
 }
 
 func (r *RealNFT) ListNetworks() ([]string, error) {
-	conn := &nftables.Conn{}
+	conn := r.conn
 	table := conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   r.tableName,

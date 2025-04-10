@@ -16,6 +16,10 @@ func (m *MockNFT) CreateBlocklist() error {
 	return m.Called().Error(0)
 }
 
+func (m *MockNFT) ModifyIP(network string, add bool) error {
+	return m.Called(network).Error(0)
+}
+
 func (m *MockNFT) AddNetwork(network string) error {
 	return m.Called(network).Error(0)
 }
