@@ -16,8 +16,10 @@ const (
     setName   = "blocked_ips"
 )
 
+var nftConn NFT = &nftables.Conn{}
+
 func createBlocklist() {
-    conn := &nftables.Conn{}
+    conn := nftConn
 
     // Создание таблицы
     table := conn.AddTable(&nftables.Table{
@@ -79,7 +81,7 @@ func createBlocklist() {
 }
 
 func modifyIP(ip string, add bool) {
-    conn := &nftables.Conn{}
+    conn := nftConn
 
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,
@@ -121,7 +123,7 @@ func modifyIP(ip string, add bool) {
 }
 
 func listBlockedIPs() {
-    conn := &nftables.Conn{}
+    conn := nftConn
 
     table := conn.AddTable(&nftables.Table{
 	Family: nftables.TableFamilyIPv4,

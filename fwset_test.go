@@ -6,13 +6,13 @@ import (
     "testing"
 
     "github.com/google/nftables"
-    "github.com/google/nftables/expr"
 )
 
 // MockNFTConn для тестирования без реального взаимодействия с nftables
 type MockNFTConn struct {
     Tables  []*nftables.Table
     Chains  []*nftables.Chain
+    Rules   []*nftables.Rule
     Sets    []*nftables.Set
     Elements map[string][]nftables.SetElement
 }
@@ -25,6 +25,11 @@ func (m *MockNFTConn) AddTable(t *nftables.Table) *nftables.Table {
 func (m *MockNFTConn) AddChain(c *nftables.Chain) *nftables.Chain {
     m.Chains = append(m.Chains, c)
     return c
+}
+
+func (m *MockNFTConn) AddRule(r *nftables.Rule) *nftables.Rule {
+    m.Rules = append(m.Rules, r)
+    return r
 }
 
 func (m *MockNFTConn) AddSet(s *nftables.Set, elements []nftables.SetElement) error {
@@ -134,6 +139,8 @@ func TestIntegration(t *testing.T) {
 
     t.Run("AddRemoveIP", func(t *testing.T) {
 	testIP := "8.8.8.8"
+	createBlocklist()
+	defer cleanup(t)
 	
 	// Добавление
 	modifyIP(testIP, true)
