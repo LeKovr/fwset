@@ -16,12 +16,12 @@ import (
 
 // Config holds all config vars.
 type Config struct {
-	fwset.Config
 	Command struct {
 		Name string   `choice:"create"                                            choice:"list"            choice:"add" choice:"del" description:"Команда"        positional-arg-name:"COMMAND"`
 		IPs  []string `description:"IP адрес (для команд add, del)"               positional-arg-name:"IP"`
 	} `positional-args:"true"`
 
+	fwset.Config
 	Logger slogger.Config `env-namespace:"LOG" group:"Logging Options" namespace:"log"`
 
 	config.EnableShowVersion

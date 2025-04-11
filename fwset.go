@@ -9,8 +9,8 @@ import (
 
 // Config содержит тип и стандартные настройки фаервола.
 type Config struct {
-	config.Config
 	FW string `choice:"nft" choice:"ipset" default:"nft" description:"Firewall type" env:"FW" long:"fw"`
+	config.Config
 }
 
 // NFTables описывает общий для фаерволов интерфейс.
