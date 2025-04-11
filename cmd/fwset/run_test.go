@@ -48,7 +48,7 @@ func TestRun(t *testing.T) {
 	//ports := GetPorts(t)
 	// Save original args
 	a := os.Args
-	os.Args = append([]string{a[0]}, "list") //"--listen", fmt.Sprintf(":%d", ports[0]),
+	os.Args = append([]string{a[0]}, "--config_gen=md") //"--listen", fmt.Sprintf(":%d", ports[0]),
 	//"--listen_grpc", fmt.Sprintf(":%d", ports[1]),
 
 	var c int
