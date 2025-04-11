@@ -26,3 +26,4 @@ go.work.sum
 
 fwset
 !cmd/fwset
+golangci-lint-report.xml

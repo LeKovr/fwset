@@ -1,0 +1,103 @@
+version: "2"
+
+
+linters:
+  default: all
+  disable:
+    - lll
+    - intrange
+    - gomoddirectives
+    - godox
+    - gocritic
+    - gochecknoinits
+    - gochecknoglobals
+    - forbidigo
+    - fatcontext
+    - exhaustruct
+    - err113
+    - cyclop
+    - perfsprint
+
+    - contextcheck
+    - depguard
+    - funlen
+    - nestif
+    - varnamelen
+
+    - rowserrcheck # not relevant (SQL)
+    - sqlclosecheck # not relevant (SQL)
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    gocyclo:
+      min-complexity: 16
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+    funlen:
+      lines: -1
+      statements: 40
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: "github.com/instana/testify"
+              desc: not allowed
+            - pkg: "github.com/pkg/errors"
+              desc: Should be replaced by standard lib errors package
+    godox:
+      keywords:
+        - FIXME
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - sloppyReassign
+        - rangeValCopy
+        - octalLiteral
+        - paramTypeCombine # already handle by gofumpt.extra-rules
+      settings:
+        hugeParam:
+          sizeThreshold: 100
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+#    - golines
+  settings:
+    gci:
+      sections:
+        - standard                          # Standard section: captures all standard packages.
+        - default                           # Default section: contains all imports that could not be matched to another section type.
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true
+      print-linter-name: true
+      print-issued-lines: true
+    checkstyle:
+      path: golangci-lint-report.xml
+  sort-order:
+    - linter
+    - severity
+    - file
+  show-stats: true
+run:
+  timeout: 5m  # Таймаут выполнения линтера
+  tests: false  # Не включать файлы тестов

@@ -1,0 +1,174 @@
+SHELL          = /bin/sh
+CFG           ?= .env
+PRG           ?= $(shell basename $$PWD)
+PRG_DEST      ?= $(PRG)
+CFG_TMPL      ?= Makefile.env
+
+# -----------------------------------------------------------------------------
+# Build config
+
+SOURCES        = $(shell find . -maxdepth 4 -mindepth 1 -path ./data -prune -o -name '*.go')
+
+APP_VERSION   ?= $(shell git describe --tags --always)
+# Last project tag (used in `make changelog`)
+RELEASE       ?= $(shell git describe --tags --abbrev=0 --always)
+# Repository address (compiled into main.repo)
+REPO          ?= $(shell git config --get remote.origin.url)
+
+GO             ?= go
+GOLANG_IMAGE   ?= ghcr.io/dopos/golang-alpine
+GOLANG_VERSION ?= v1.23.6-alpine3.21.3
+GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.0.2
+
+TARGETOS      ?= linux
+TARGETARCH    ?= amd64
+LDFLAGS       := -s -w -extldflags '-static'
+
+# Distros: arch
+ALLARCH       ?= "linux/amd64 linux/386"
+# Distros: destination
+DIRDIST       ?= dist
+
+# Path to golang package docs
+GODOC_REPO    ?= github.com/!le!kovr/$(PRG)
+# App docker image
+DOCKER_IMAGE  ?= ghcr.io/lekovr/$(PRG)
+
+.PHONY: build build-standalone run fmt lint ci-lint vet test cov-html cov-func cov-total cov-clean changelog
+
+# ------------------------------------------------------------------------------
+## Compile operations
+#:
+
+## Build app
+build: $(PRG_DEST) config.md
+
+$(PRG_DEST): $(SOURCES) go.mod
+	@GOOS=$${TARGETOS} GOARCH=$${TARGETARCH} CGO_ENABLED=0 \
+	  $(GO) build -v -o $@ -ldflags \
+	 "$${LDFLAGS} -X main.version=$(APP_VERSION) -X main.repo=$(REPO)" \
+	 ./cmd/$(PRG) && \
+	 ./$(PRG_DEST) --config_gen=mk > $(CFG_TMPL) 2>/dev/null
+
+## Build & run app
+run: $(PRG)
+	./$(PRG) --log.debug --root=static --listen $(LISTEN) --listen_grpc $(LISTEN_GRPC)
+
+## Format go sources
+fmt:
+	$(GO) fmt ./...
+
+## Check and sort imports
+fmt-gci:
+	@which gci > /dev/null || $(GO) install github.com/daixiang0/gci@latest
+	@gci write . --skip-generated -s standard -s default
+
+## Run lint
+lint:
+	@which golint > /dev/null || $(GO) install golang.org/x/lint/golint@latest
+	@golint ./...
+
+## Run golangci-lint
+ci-lint:
+	@docker run --rm -v .:/src -w /src $(GOLANGCI_IMAGE) golangci-lint run --color always ./...
+
+## Run golangci-lint with fix
+ci-lint-fix:
+	@docker run --rm -v .:/src -w /src -v $$HOME/.cache/go-build:/.cache --user $(UID):$(GID) $(GOLANGCI_IMAGE) golangci-lint run --fix ./...
+
+## Verify golangci-lint config
+ci-lint-verify:
+	@docker run --rm -v .:/src -w /src $(GOLANGCI_IMAGE) golangci-lint config verify
+
+## Run vet
+vet:
+	@$(GO) vet ./...
+
+## Run tests
+test: lint vet coverage.out
+
+test-race:
+	$(GO) test -tags test -race -covermode=atomic -coverprofile=$@ ./...
+
+test-ci:
+	@go run gotest.tools/gotestsum@v1.12.0 -f testdox --junitfile rspec.xml ./...
+
+# internal target
+coverage.out: $(SOURCES)
+	@#GIN_MODE=release $(GO) test -test.v -test.race -coverprofile=$@ -covermode=atomic ./...
+	$(GO) test -tags test -covermode=atomic -coverprofile=$@ ./...
+
+## Open coverage report in browser
+cov-html: cov
+	$(GO) tool cover -html=coverage.out
+
+## Show code coverage per func
+cov-func: coverage.out
+	$(GO) tool cover -func coverage.out
+
+## Show total code coverage
+cov-total: coverage.out
+	@$(GO) tool cover -func coverage.out | grep total: | awk '{print $$3}'
+
+coverage.xml: $(SOURCES)
+	@go test -tags test -coverprofile=coverage.txt -covermode count $(SOURCE_DIRS)
+	@go run github.com/boumenot/gocover-cobertura@v1.2.0 < coverage.txt > $@
+
+cov-ci: coverage.xml
+	@go tool cover -func coverage.txt
+
+## Clean coverage report
+cov-clean:
+	rm -f coverage.*
+
+## count LoC without generated code
+cloc:
+	@cloc --md --fullpath --exclude-dir=zgen --not-match-f=./proto/README.md \
+	  --not-match-f=static/js/api.js --not-match-f=static/js/service.swagger.json  .
+
+## Changes from last tag
+clog:
+	@echo Changes since $(RELEASE)
+	@echo
+	@git log $(RELEASE)..@ --pretty=format:"* %s"
+
+## generate CLI options report
+config.md: $(PRG_DEST)
+	@./$(PRG_DEST) --config_gen=md > $@ 2>/dev/null || true
+
+# ------------------------------------------------------------------------------
+## Prepare distros
+#:
+
+## build app for all platforms
+buildall: lint vet
+	@echo "*** $@ ***" ; \
+	  for a in "$(ALLARCH)" ; do \
+	    echo "** $${a%/*} $${a#*/}" ; \
+	    P=$(PRG)-$${a%/*}_$${a#*/} ; \
+	    $(MAKE) -s build TARGETOS=$${a%/*} TARGETARCH=$${a#*/} PRG_DEST=$$P ; \
+	  done
+
+## create disro files
+dist: clean buildall
+	@echo "*** $@ ***"
+	@[ -d $(DIRDIST) ] || mkdir $(DIRDIST)
+	@sha256sum $(PRG)-* > $(DIRDIST)/SHA256SUMS ; \
+	  for a in "$(ALLARCH)" ; do \
+	    echo "** $${a%/*} $${a#*/}" ; \
+	    P=$(PRG)-$${a%/*}_$${a#*/} ; \
+	    zip "$(DIRDIST)/$$P.zip" "$$P" README.md README.ru.md screenshot.png; \
+	    rm "$$P" ; \
+	  done
+
+## clean generated files
+clean:
+	@echo "*** $@ ***" ; \
+	  for a in "$(ALLARCH)" ; do \
+	    P=$(PRG)_$${a%/*}_$${a#*/} ; \
+	    [ -f $$P ] && rm $$P || true ; \
+	  done
+	@[ -d $(DIRDIST) ] && rm -rf $(DIRDIST) || true
+	@[ -f $(PRG) ] && rm -f $(PRG) || true
+	@rm -f $(PRG)-* || true
+	@[ ! -f coverage.out ] || rm coverage.out

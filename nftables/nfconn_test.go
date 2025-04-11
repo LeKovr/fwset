@@ -1,4 +1,4 @@
-package main
+package nftables
 
 import (
 	"net"
@@ -7,7 +7,15 @@ import (
 
 	"github.com/google/nftables"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/LeKovr/fwset/config"
 )
+
+var cfg = config.Config{
+	TableName: "test_table",
+	ChainName: "input",
+	SetName:   "test_set",
+}
 
 // MockNFTConn для тестирования без реального взаимодействия с nftables
 type MockNFTConn struct {
@@ -83,12 +91,13 @@ func (m *MockNFTConn) GetSetElements(s *nftables.Set) ([]nftables.SetElement, er
 	return m.Elements[s.Name], nil
 }
 
-func NewMockNFT(mockConn *MockNFTConn) *RealNFT {
+func NewMockNFT(cfg config.Config, mockConn *MockNFTConn) *RealNFT {
 	return &RealNFT{
-		tableName: "myfirewall",
-		chainName: "input",
-		setName:   "blocked_nets",
-		conn:      mockConn,
+		config: cfg,
+		//		tableName: "myfirewall",
+		//		chainName: "input",
+		//		setName:   "blocked_nets",
+		conn: mockConn,
 	}
 }
 func (m *MockNFTConn) Flush() error { return nil }
@@ -97,40 +106,40 @@ func (m *MockNFTConn) Flush() error { return nil }
 func TestCreateBlocklist(t *testing.T) {
 	mockConn := NewMockNFTConn()
 
-	nft := NewMockNFT(mockConn)
+	nft := NewMockNFT(cfg, mockConn)
 	nft.CreateBlocklist()
 
-	if len(mockConn.Tables) != 1 || mockConn.Tables[nft.tableName].Name != nft.tableName {
+	if len(mockConn.Tables) != 1 || mockConn.Tables[nft.config.TableName].Name != nft.config.TableName {
 		t.Error("Table not created")
 	}
-	if len(mockConn.Chains) != 1 || mockConn.Chains[0].Name != nft.chainName {
+	if len(mockConn.Chains) != 1 || mockConn.Chains[0].Name != nft.config.ChainName {
 		t.Error("Chain not created")
 	}
-	if len(mockConn.Sets) != 1 || mockConn.Sets[0].Name != nft.setName {
+	if len(mockConn.Sets) != 1 || mockConn.Sets[0].Name != nft.config.SetName {
 		t.Error("Set not created")
 	}
 }
 
 func TestModifyIP(t *testing.T) {
 	mockConn := NewMockNFTConn()
-	nft := NewMockNFT(mockConn)
+	nft := NewMockNFT(cfg, mockConn)
 
 	// Инициализация тестового сета
-	mockConn.AddSet(&nftables.Set{Name: nft.setName}, nil)
+	mockConn.AddSet(&nftables.Set{Name: nft.config.SetName}, nil)
 
 	testIP := "192.168.1.1"
 
 	// Тест добавления
-	nft.ModifyIP(testIP, true)
-	elements := mockConn.Elements[nft.setName]
+	nft.ModifyIP([]string{testIP}, true)
+	elements := mockConn.Elements[nft.config.SetName]
 	if len(elements) < 1 || net.IP(elements[0].Key).String() != testIP {
 		t.Error("IP not added", mockConn)
 	}
 
 	// Тест удаления
-	oldLen := len(mockConn.Elements[nft.setName])
-	nft.ModifyIP(testIP+"/32", false)
-	if len(mockConn.Elements[nft.setName]) == oldLen {
+	oldLen := len(mockConn.Elements[nft.config.SetName])
+	nft.ModifyIP([]string{testIP + "/32"}, false)
+	if len(mockConn.Elements[nft.config.SetName]) == oldLen {
 		t.Error("IP not removed")
 	}
 }
@@ -141,7 +150,7 @@ func TestIntegration(t *testing.T) {
 		t.Skip("Требуются права root для интеграционных тестов")
 	}
 
-	nft, err := NewRealNFT()
+	nft, err := NewRealNFT(cfg)
 	assert.NoError(t, err)
 	t.Run("CreateAndList", func(t *testing.T) {
 		nft.CreateBlocklist()
@@ -159,13 +168,13 @@ func TestIntegration(t *testing.T) {
 		defer cleanup(t, nft)
 
 		// Добавление
-		nft.ModifyIP(testIP+"/32", true)
+		nft.ModifyIP([]string{testIP + "/32"}, true)
 		if !ipInSet(t, nft, testIP) {
 			t.Error("IP не добавлен")
 		}
 
 		// Удаление
-		nft.ModifyIP(testIP+"/32", false)
+		nft.ModifyIP([]string{testIP + "/32"}, false)
 		if ipInSet(t, nft, testIP) {
 			t.Error("IP не удалён")
 		}
@@ -175,18 +184,18 @@ func TestIntegration(t *testing.T) {
 func setExists(t *testing.T, nft *RealNFT) bool {
 	table := nft.conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
-		Name:   nft.tableName,
+		Name:   nft.config.TableName,
 	})
-	_, err := nft.conn.GetSetByName(table, nft.setName)
+	_, err := nft.conn.GetSetByName(table, nft.config.SetName)
 	return err == nil
 }
 
 func ipInSet(t *testing.T, nft *RealNFT, ip string) bool {
 	table := nft.conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
-		Name:   nft.tableName,
+		Name:   nft.config.TableName,
 	})
-	set, err := nft.conn.GetSetByName(table, nft.setName)
+	set, err := nft.conn.GetSetByName(table, nft.config.SetName)
 	if err != nil {
 		return false
 	}
@@ -207,7 +216,7 @@ func ipInSet(t *testing.T, nft *RealNFT, ip string) bool {
 func cleanup(t *testing.T, nft *RealNFT) {
 	nft.conn.DelTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
-		Name:   nft.tableName,
+		Name:   nft.config.TableName,
 	})
 	if err := nft.conn.Flush(); err != nil {
 		t.Logf("Cleanup error: %v", err)

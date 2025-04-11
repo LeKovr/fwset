@@ -1,4 +1,4 @@
-package main
+package nftables
 
 import "github.com/google/nftables"
 
@@ -10,8 +10,8 @@ type NFT interface {
 	SetAddElements(s *nftables.Set, elements []nftables.SetElement) error
 	SetDeleteElements(s *nftables.Set, elements []nftables.SetElement) error
 
-	AddRule(*nftables.Rule) *nftables.Rule
+	AddRule(r *nftables.Rule) *nftables.Rule
 	Flush() error
-	GetSetElements(*nftables.Set) ([]nftables.SetElement, error)
-	DelTable(*nftables.Table)
+	GetSetElements(s *nftables.Set) ([]nftables.SetElement, error)
+	DelTable(t *nftables.Table)
 }

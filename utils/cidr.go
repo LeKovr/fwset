@@ -1,4 +1,4 @@
-package main
+package utils
 
 // Code from https://go.dev/play/p/Ynx1liLAGs2
 // Found at https://groups.google.com/g/golang-nuts/c/rJvVwk4jwjQ/m/gqtcpuKgp2YJ
@@ -14,14 +14,16 @@ import (
 // https://www.ipaddressguide.com/cidr
 // https://www.ipaddressguide.com/ipv6-cidr
 
-func IpRangeToCIDR(cidr []string, start, end string) ([]string, error) {
+func IPRangeToCIDR(cidr []string, start, end string) ([]string, error) {
 	if start == end {
 		return []string{start}, nil
 	}
+
 	ips, err := netip.ParseAddr(start)
 	if err != nil {
 		return nil, err
 	}
+
 	ipe, err := netip.ParseAddr(end)
 	if err != nil {
 		return nil, err
@@ -31,6 +33,7 @@ func IpRangeToCIDR(cidr []string, start, end string) ([]string, error) {
 	if isV4 != ipe.Is4() {
 		return nil, errors.New("start and end types are different")
 	}
+
 	if ips.Compare(ipe) > 0 {
 		return nil, errors.New("start > end")
 	}
@@ -45,6 +48,7 @@ func IpRangeToCIDR(cidr []string, start, end string) ([]string, error) {
 
 		bits, maxBit uint
 	)
+
 	if isV4 {
 		maxBit = 32
 		buf = make([]byte, 4)
@@ -55,31 +59,41 @@ func IpRangeToCIDR(cidr []string, start, end string) ([]string, error) {
 
 	for {
 		bits = 1
+
 		mask.SetUint64(1)
+
 		for bits < maxBit {
 			if (tmpInt.Or(ipsInt, mask).Cmp(ipeInt) > 0) ||
 				(tmpInt.Lsh(tmpInt.Rsh(ipsInt, bits), bits).Cmp(ipsInt) != 0) {
 				bits--
+
 				mask.Rsh(mask, 1)
+
 				break
 			}
+
 			bits++
+
 			mask.Add(mask.Lsh(mask, 1), one)
 		}
 
 		addr, _ := netip.AddrFromSlice(ipsInt.FillBytes(buf))
 		maskStr := strconv.FormatUint(uint64(maxBit-bits), 10)
 		rv := addr.String()
+
 		if maskStr != "32" {
 			rv += "/" + maskStr
 		}
+
 		cidr = append(cidr, rv)
 
 		if tmpInt.Or(ipsInt, mask); tmpInt.Cmp(ipeInt) >= 0 {
 			break
 		}
+
 		ipsInt.Add(tmpInt, one)
 	}
+
 	return cidr, nil
 }
 

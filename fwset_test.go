@@ -1,12 +1,20 @@
-package main
+package fwset
 
 import (
-	"net"
 	"testing"
 
+	"github.com/LeKovr/fwset/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
+
+var cfg = Config{
+	Config: config.Config{
+		TableName: "test_table",
+		ChainName: "input",
+		SetName:   "test_set",
+	},
+}
 
 type MockNFT struct {
 	mock.Mock
@@ -16,16 +24,16 @@ func (m *MockNFT) CreateBlocklist() error {
 	return m.Called().Error(0)
 }
 
-func (m *MockNFT) ModifyIP(network string, add bool) error {
-	return m.Called(network).Error(0)
+func (m *MockNFT) ModifyIP(networks []string, add bool) error {
+	return m.Called(networks).Error(0)
 }
 
-func (m *MockNFT) AddNetwork(network string) error {
-	return m.Called(network).Error(0)
+func (m *MockNFT) AddNetwork(networks []string) error {
+	return m.Called(networks).Error(0)
 }
 
-func (m *MockNFT) RemoveNetwork(network string) error {
-	return m.Called(network).Error(0)
+func (m *MockNFT) RemoveNetwork(networks []string) error {
+	return m.Called(networks).Error(0)
 }
 
 func (m *MockNFT) ListNetworks() ([]string, error) {
@@ -48,13 +56,13 @@ func TestAddNetwork(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNFT := new(MockNFT)
-			fw := NewFirewall(mockNFT)
+			fw := &Firewall{config: cfg, handler: mockNFT}
 
 			if tt.mockCall {
-				mockNFT.On("AddNetwork", tt.input).Return(nil)
+				mockNFT.On("AddNetwork", []string{tt.input}).Return(nil)
 			}
 
-			err := fw.AddNetwork(tt.input)
+			err := fw.AddNetwork([]string{tt.input})
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -80,13 +88,13 @@ func TestRemoveNetwork(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNFT := new(MockNFT)
-			fw := NewFirewall(mockNFT)
+			fw := &Firewall{config: cfg, handler: mockNFT}
 
 			if tt.mockCall {
-				mockNFT.On("RemoveNetwork", tt.input).Return(nil)
+				mockNFT.On("RemoveNetwork", []string{tt.input}).Return(nil)
 			}
 
-			err := fw.RemoveNetwork(tt.input)
+			err := fw.RemoveNetwork([]string{tt.input})
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -99,7 +107,7 @@ func TestRemoveNetwork(t *testing.T) {
 
 func TestListNetworks(t *testing.T) {
 	mockNFT := new(MockNFT)
-	fw := NewFirewall(mockNFT)
+	fw := &Firewall{config: cfg, handler: mockNFT}
 
 	expected := []string{"192.168.1.1/32", "10.0.0.0/24"}
 	mockNFT.On("ListNetworks").Return(expected, nil)
@@ -107,71 +115,4 @@ func TestListNetworks(t *testing.T) {
 	result, err := fw.ListNetworks()
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
-}
-
-func TestParseNetwork(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-		wantErr  bool
-	}{
-		{"192.168.1.1", "192.168.1.1/32", false},
-		{"10.0.0.0/24", "10.0.0.0/24", false},
-		{"invalid", "", true},
-		{"2001:db8::/32", "2001:db8::/32", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			ipnet, err := parseNetwork(tt.input)
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, ipnet.String())
-		})
-	}
-}
-
-func TestCIDRToRange(t *testing.T) {
-	tests := []struct {
-		input  string
-		start  string
-		end    string
-		isIPv6 bool
-	}{
-		// IPv4
-		{"192.168.1.1", "192.168.1.1", "192.168.1.1", false},
-		{"192.168.1.1/32", "192.168.1.1", "192.168.1.1", false},
-		{"10.0.0.0/24", "10.0.0.0", "10.0.0.255", false},
-		{"172.16.0.0/16", "172.16.0.0", "172.16.255.255", false},
-
-		// IPv6
-		{"2001:db8::/32", "2001:db8::", "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff", true},
-		{"fd00::/8", "fd00::", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			start, end, err := cidrToRange(tt.input)
-			assert.NoError(t, err)
-			// Проверка IPv4
-			if !tt.isIPv6 {
-				if start.String() != tt.start || end.String() != tt.end {
-					t.Errorf("Expected %s-%s, got %s-%s",
-						tt.start, tt.end, start, end)
-				}
-				return
-			}
-
-			// Проверка IPv6
-			expectedStart := net.ParseIP(tt.start)
-			expectedEnd := net.ParseIP(tt.end)
-			if !start.Equal(expectedStart) || !end.Equal(expectedEnd) {
-				t.Errorf("Expected %s-%s, got %s-%s",
-					expectedStart, expectedEnd, start, end)
-			}
-		})
-	}
 }
