@@ -3,7 +3,7 @@
 
 | Name | ENV | Type | Default | Description |
 |------|-----|------|---------|-------------|
-| COMMAND              | -                    | create,list,add,del |  | Команда |
+| COMMAND              | -                    | create,list,add,del,destroy |  | Команда |
 | IP                   | -                    | []string |  | IP адрес (для команд add, del) |
 | accept               | ACCEPT               | bool | `false` | Use Accept instead of Drop |
 | fw                   | FW                   | nft,ipset | `nft` | Firewall type |

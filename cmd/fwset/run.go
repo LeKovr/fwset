@@ -17,10 +17,10 @@ import (
 // Config holds all config vars.
 type Config struct {
 	Command struct {
-		Name string   `choice:"create"                                            choice:"list"            choice:"add" choice:"del" description:"Команда"        positional-arg-name:"COMMAND"`
+		Name string   `choice:"create"                                            choice:"list"            choice:"add" choice:"del" choice:"destroy" description:"Команда"        positional-arg-name:"COMMAND"`
 		IPs  []string `description:"IP адрес (для команд add, del)"               positional-arg-name:"IP"`
 	} `positional-args:"true"`
-	IsAccept bool `description:"Use Accept instead of Drop" env:"ACCEPT"             long:"accept"`
+	IsAccept bool `description:"Use Accept instead of Drop" env:"ACCEPT" long:"accept"`
 
 	fwset.Config
 	Logger slogger.Config `env-namespace:"LOG" group:"Logging Options" namespace:"log"`
@@ -79,12 +79,18 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 	if err != nil {
 		return
 	}
+
 	switch cfg.Command.Name {
 	case "create":
 		if err = fw.Create(); err != nil {
 			return
 		}
+
 		fmt.Println("Sets created")
+	case "destroy":
+		fw.Destroy()
+
+		fmt.Println("Sets destroyed")
 	case "add":
 		if len(cfg.Command.IPs) < 1 {
 			err = ErrNoRequiredIPs

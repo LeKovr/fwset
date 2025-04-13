@@ -49,10 +49,12 @@ func (r *RealNFT) Create(accept bool) error {
 
 	kind := expr.VerdictDrop
 	setName := r.config.SetNameDrop
+
 	if accept {
 		kind = expr.VerdictAccept
 		setName = r.config.SetNameAccept
 	}
+
 	set := &nftables.Set{
 		Name:     setName,
 		Table:    table,
@@ -106,16 +108,26 @@ func (r *RealNFT) Create(accept bool) error {
 	return conn.Flush()
 }
 
+func (r *RealNFT) Destroy() error {
+	r.conn.DelTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv4,
+		Name:   r.config.TableName,
+	})
+	return r.conn.Flush()
+}
+
 func (r *RealNFT) ModifyIP(accept, add bool, networks []string) error {
 	conn := r.conn
 	table := conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   r.config.TableName,
 	})
+
 	setName := r.config.SetNameDrop
 	if accept {
 		setName = r.config.SetNameAccept
 	}
+
 	set, err := conn.GetSetByName(table, setName)
 	if err != nil {
 		return err
@@ -162,6 +174,7 @@ func (r *RealNFT) List(accept bool) ([]string, error) {
 		Family: nftables.TableFamilyIPv4,
 		Name:   r.config.TableName,
 	})
+
 	setName := r.config.SetNameDrop
 	if accept {
 		setName = r.config.SetNameAccept

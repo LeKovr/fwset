@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.3.0] - 2025-04-13
 
 * #9, Добавить поддержку whitelist
+* #10, Добавить команду удаления таблицы
 
 ## [0.2.0] - 2025-04-11
 

@@ -41,6 +41,10 @@ func (m *MockNFT) List(accept bool) ([]string, error) {
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *MockNFT) Destroy() error {
+	return m.Called().Error(0)
+}
+
 func TestAdd(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -20,6 +20,7 @@ type NFTables interface {
 	Add(accept bool, networks []string) error
 	Remove(accept bool, networks []string) error
 	List(accept bool) ([]string, error)
+	Destroy() error
 }
 
 // Firewall содержит методы, которые проксируются в фаервол.
@@ -52,6 +53,7 @@ func (fw *Firewall) Create() error {
 	if err := fw.handler.Create(true); err != nil {
 		return err
 	}
+
 	return fw.handler.Create(false)
 }
 
@@ -69,4 +71,8 @@ func (fw *Firewall) Remove(accept bool, networks []string) error {
 
 func (fw *Firewall) List(accept bool) ([]string, error) {
 	return fw.handler.List(accept)
+}
+
+func (fw *Firewall) Destroy() error {
+	return fw.handler.Destroy()
 }
