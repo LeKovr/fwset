@@ -31,7 +31,7 @@ func NewRealNFT(cfg config.Config) (*RealNFT, error) {
 	}, nil
 }
 
-func (r *RealNFT) CreateBlocklist() error {
+func (r *RealNFT) Create(accept bool) error {
 	conn := r.conn
 
 	table := conn.AddTable(&nftables.Table{
@@ -47,8 +47,14 @@ func (r *RealNFT) CreateBlocklist() error {
 		Priority: nftables.ChainPriorityFilter,
 	})
 
+	kind := expr.VerdictDrop
+	setName := r.config.SetNameDrop
+	if accept {
+		kind = expr.VerdictAccept
+		setName = r.config.SetNameAccept
+	}
 	set := &nftables.Set{
-		Name:     r.config.SetName,
+		Name:     setName,
 		Table:    table,
 		KeyType:  nftables.TypeIPAddr,
 		Interval: true,
@@ -65,11 +71,6 @@ func (r *RealNFT) CreateBlocklist() error {
 		return err
 	}
 
-	kind := expr.VerdictDrop
-	if r.config.IsAccept {
-		kind = expr.VerdictAccept
-	}
-
 	exprs := []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
@@ -79,7 +80,7 @@ func (r *RealNFT) CreateBlocklist() error {
 		},
 		&expr.Lookup{
 			SourceRegister: 1,
-			SetName:        r.config.SetName,
+			SetName:        setName,
 			SetID:          set.ID,
 		},
 		/*
@@ -105,14 +106,17 @@ func (r *RealNFT) CreateBlocklist() error {
 	return conn.Flush()
 }
 
-func (r *RealNFT) ModifyIP(networks []string, add bool) error {
+func (r *RealNFT) ModifyIP(accept, add bool, networks []string) error {
 	conn := r.conn
 	table := conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   r.config.TableName,
 	})
-
-	set, err := conn.GetSetByName(table, r.config.SetName)
+	setName := r.config.SetNameDrop
+	if accept {
+		setName = r.config.SetNameAccept
+	}
+	set, err := conn.GetSetByName(table, setName)
 	if err != nil {
 		return err
 	}
@@ -144,22 +148,26 @@ func (r *RealNFT) ModifyIP(networks []string, add bool) error {
 	return conn.Flush()
 }
 
-func (r *RealNFT) AddNetwork(networks []string) error {
-	return r.ModifyIP(networks, true)
+func (r *RealNFT) Add(accept bool, networks []string) error {
+	return r.ModifyIP(accept, true, networks)
 }
 
-func (r *RealNFT) RemoveNetwork(networks []string) error {
-	return r.ModifyIP(networks, false)
+func (r *RealNFT) Remove(accept bool, networks []string) error {
+	return r.ModifyIP(accept, false, networks)
 }
 
-func (r *RealNFT) ListNetworks() ([]string, error) {
+func (r *RealNFT) List(accept bool) ([]string, error) {
 	conn := r.conn
 	table := conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   r.config.TableName,
 	})
+	setName := r.config.SetNameDrop
+	if accept {
+		setName = r.config.SetNameAccept
+	}
 
-	set, err := conn.GetSetByName(table, r.config.SetName)
+	set, err := conn.GetSetByName(table, setName)
 	if err != nil {
 		return nil, err
 	}

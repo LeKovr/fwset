@@ -10,9 +10,9 @@ import (
 
 var cfg = Config{
 	Config: config.Config{
-		TableName: "test_table",
-		ChainName: "input",
-		SetName:   "test_set",
+		TableName:   "test_table",
+		ChainName:   "input",
+		SetNameDrop: "test_set",
 	},
 }
 
@@ -20,28 +20,28 @@ type MockNFT struct {
 	mock.Mock
 }
 
-func (m *MockNFT) CreateBlocklist() error {
+func (m *MockNFT) Create(accept bool) error {
 	return m.Called().Error(0)
 }
 
-func (m *MockNFT) ModifyIP(networks []string, add bool) error {
+func (m *MockNFT) ModifyIP(accept, add bool, networks []string) error {
 	return m.Called(networks).Error(0)
 }
 
-func (m *MockNFT) AddNetwork(networks []string) error {
+func (m *MockNFT) Add(accept bool, networks []string) error {
 	return m.Called(networks).Error(0)
 }
 
-func (m *MockNFT) RemoveNetwork(networks []string) error {
+func (m *MockNFT) Remove(accept bool, networks []string) error {
 	return m.Called(networks).Error(0)
 }
 
-func (m *MockNFT) ListNetworks() ([]string, error) {
+func (m *MockNFT) List(accept bool) ([]string, error) {
 	args := m.Called()
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func TestAddNetwork(t *testing.T) {
+func TestAdd(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -59,10 +59,10 @@ func TestAddNetwork(t *testing.T) {
 			fw := &Firewall{config: cfg, handler: mockNFT}
 
 			if tt.mockCall {
-				mockNFT.On("AddNetwork", []string{tt.input}).Return(nil)
+				mockNFT.On("Add", []string{tt.input}).Return(nil)
 			}
 
-			err := fw.AddNetwork([]string{tt.input})
+			err := fw.Add(false, []string{tt.input})
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -73,7 +73,7 @@ func TestAddNetwork(t *testing.T) {
 	}
 }
 
-func TestRemoveNetwork(t *testing.T) {
+func TestRemove(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -91,10 +91,10 @@ func TestRemoveNetwork(t *testing.T) {
 			fw := &Firewall{config: cfg, handler: mockNFT}
 
 			if tt.mockCall {
-				mockNFT.On("RemoveNetwork", []string{tt.input}).Return(nil)
+				mockNFT.On("Remove", []string{tt.input}).Return(nil)
 			}
 
-			err := fw.RemoveNetwork([]string{tt.input})
+			err := fw.Remove(false, []string{tt.input})
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -105,14 +105,14 @@ func TestRemoveNetwork(t *testing.T) {
 	}
 }
 
-func TestListNetworks(t *testing.T) {
+func TestList(t *testing.T) {
 	mockNFT := new(MockNFT)
 	fw := &Firewall{config: cfg, handler: mockNFT}
 
 	expected := []string{"192.168.1.1/32", "10.0.0.0/24"}
 	mockNFT.On("ListNetworks").Return(expected, nil)
 
-	result, err := fw.ListNetworks()
+	result, err := fw.List(false)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 }

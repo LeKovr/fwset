@@ -15,11 +15,11 @@ type Config struct {
 
 // NFTables описывает общий для фаерволов интерфейс.
 type NFTables interface {
-	CreateBlocklist() error
-	ModifyIP(networks []string, add bool) error
-	AddNetwork(networks []string) error
-	RemoveNetwork(networks []string) error
-	ListNetworks() ([]string, error)
+	Create(accept bool) error
+	ModifyIP(accept, add bool, networks []string) error
+	Add(accept bool, networks []string) error
+	Remove(accept bool, networks []string) error
+	List(accept bool) ([]string, error)
 }
 
 // Firewall содержит методы, которые проксируются в фаервол.
@@ -48,26 +48,25 @@ func New(cfg Config) (*Firewall, error) {
 	}, nil
 }
 
-func (fw *Firewall) CreateBlocklist() error {
-	return fw.handler.CreateBlocklist()
-}
-
-func (fw *Firewall) ModifyIP(networks []string, add bool) error {
-	if add {
-		return fw.AddNetwork(networks)
+func (fw *Firewall) Create() error {
+	if err := fw.handler.Create(true); err != nil {
+		return err
 	}
-
-	return fw.RemoveNetwork(networks)
+	return fw.handler.Create(false)
 }
 
-func (fw *Firewall) AddNetwork(networks []string) error {
-	return fw.handler.AddNetwork(networks)
+func (fw *Firewall) ModifyIP(accept, add bool, networks []string) error {
+	return fw.handler.ModifyIP(accept, add, networks)
 }
 
-func (fw *Firewall) RemoveNetwork(networks []string) error {
-	return fw.handler.RemoveNetwork(networks)
+func (fw *Firewall) Add(accept bool, networks []string) error {
+	return fw.handler.Add(accept, networks)
 }
 
-func (fw *Firewall) ListNetworks() ([]string, error) {
-	return fw.handler.ListNetworks()
+func (fw *Firewall) Remove(accept bool, networks []string) error {
+	return fw.handler.Remove(accept, networks)
+}
+
+func (fw *Firewall) List(accept bool) ([]string, error) {
+	return fw.handler.List(accept)
 }

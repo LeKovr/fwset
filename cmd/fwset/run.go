@@ -20,6 +20,7 @@ type Config struct {
 		Name string   `choice:"create"                                            choice:"list"            choice:"add" choice:"del" description:"Команда"        positional-arg-name:"COMMAND"`
 		IPs  []string `description:"IP адрес (для команд add, del)"               positional-arg-name:"IP"`
 	} `positional-args:"true"`
+	IsAccept bool `description:"Use Accept instead of Drop" env:"ACCEPT"             long:"accept"`
 
 	fwset.Config
 	Logger slogger.Config `env-namespace:"LOG" group:"Logging Options" namespace:"log"`
@@ -80,11 +81,10 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 	}
 	switch cfg.Command.Name {
 	case "create":
-		if err = fw.CreateBlocklist(); err != nil {
+		if err = fw.Create(); err != nil {
 			return
 		}
-
-		fmt.Println("Blocklist created")
+		fmt.Println("Sets created")
 	case "add":
 		if len(cfg.Command.IPs) < 1 {
 			err = ErrNoRequiredIPs
@@ -92,7 +92,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 			return
 		}
 
-		if err = fw.AddNetwork(cfg.Command.IPs); err != nil {
+		if err = fw.Add(cfg.IsAccept, cfg.Command.IPs); err != nil {
 			return
 		}
 
@@ -104,7 +104,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 			return
 		}
 
-		if err = fw.RemoveNetwork(cfg.Command.IPs); err != nil {
+		if err = fw.Remove(cfg.IsAccept, cfg.Command.IPs); err != nil {
 			return
 		}
 
@@ -112,7 +112,18 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 	case "list":
 		var networks []string
 
-		networks, err = fw.ListNetworks()
+		networks, err = fw.List(true)
+		if err != nil {
+			return
+		}
+
+		fmt.Println("Allowed networks:")
+
+		for _, network := range networks {
+			fmt.Println(network)
+		}
+
+		networks, err = fw.List(false)
 		if err != nil {
 			return
 		}

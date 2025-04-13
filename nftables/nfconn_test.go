@@ -12,9 +12,9 @@ import (
 )
 
 var cfg = config.Config{
-	TableName: "test_table",
-	ChainName: "input",
-	SetName:   "test_set",
+	TableName:   "test_table",
+	ChainName:   "input",
+	SetNameDrop: "test_set",
 }
 
 // MockNFTConn для тестирования без реального взаимодействия с nftables
@@ -107,7 +107,7 @@ func TestCreateBlocklist(t *testing.T) {
 	mockConn := NewMockNFTConn()
 
 	nft := NewMockNFT(cfg, mockConn)
-	nft.CreateBlocklist()
+	nft.Create(false)
 
 	if len(mockConn.Tables) != 1 || mockConn.Tables[nft.config.TableName].Name != nft.config.TableName {
 		t.Error("Table not created")
@@ -115,7 +115,7 @@ func TestCreateBlocklist(t *testing.T) {
 	if len(mockConn.Chains) != 1 || mockConn.Chains[0].Name != nft.config.ChainName {
 		t.Error("Chain not created")
 	}
-	if len(mockConn.Sets) != 1 || mockConn.Sets[0].Name != nft.config.SetName {
+	if len(mockConn.Sets) != 1 || mockConn.Sets[0].Name != nft.config.SetNameDrop {
 		t.Error("Set not created")
 	}
 }
@@ -125,21 +125,21 @@ func TestModifyIP(t *testing.T) {
 	nft := NewMockNFT(cfg, mockConn)
 
 	// Инициализация тестового сета
-	mockConn.AddSet(&nftables.Set{Name: nft.config.SetName}, nil)
+	mockConn.AddSet(&nftables.Set{Name: nft.config.SetNameDrop}, nil)
 
 	testIP := "192.168.1.1"
 
 	// Тест добавления
-	nft.ModifyIP([]string{testIP}, true)
-	elements := mockConn.Elements[nft.config.SetName]
+	nft.ModifyIP(false, true, []string{testIP})
+	elements := mockConn.Elements[nft.config.SetNameDrop]
 	if len(elements) < 1 || net.IP(elements[0].Key).String() != testIP {
 		t.Error("IP not added", mockConn)
 	}
 
 	// Тест удаления
-	oldLen := len(mockConn.Elements[nft.config.SetName])
-	nft.ModifyIP([]string{testIP + "/32"}, false)
-	if len(mockConn.Elements[nft.config.SetName]) == oldLen {
+	oldLen := len(mockConn.Elements[nft.config.SetNameDrop])
+	nft.ModifyIP(false, false, []string{testIP + "/32"})
+	if len(mockConn.Elements[nft.config.SetNameDrop]) == oldLen {
 		t.Error("IP not removed")
 	}
 }
@@ -153,7 +153,7 @@ func TestIntegration(t *testing.T) {
 	nft, err := NewRealNFT(cfg)
 	assert.NoError(t, err)
 	t.Run("CreateAndList", func(t *testing.T) {
-		nft.CreateBlocklist()
+		nft.Create(false)
 		defer cleanup(t, nft)
 
 		// Проверка создания
@@ -164,17 +164,17 @@ func TestIntegration(t *testing.T) {
 
 	t.Run("AddRemoveIP", func(t *testing.T) {
 		testIP := "8.8.8.8"
-		nft.CreateBlocklist()
+		nft.Create(false)
 		defer cleanup(t, nft)
 
 		// Добавление
-		nft.ModifyIP([]string{testIP + "/32"}, true)
+		nft.ModifyIP(false, true, []string{testIP + "/32"})
 		if !ipInSet(t, nft, testIP) {
 			t.Error("IP не добавлен")
 		}
 
 		// Удаление
-		nft.ModifyIP([]string{testIP + "/32"}, false)
+		nft.ModifyIP(false, false, []string{testIP + "/32"})
 		if ipInSet(t, nft, testIP) {
 			t.Error("IP не удалён")
 		}
@@ -186,7 +186,7 @@ func setExists(t *testing.T, nft *RealNFT) bool {
 		Family: nftables.TableFamilyIPv4,
 		Name:   nft.config.TableName,
 	})
-	_, err := nft.conn.GetSetByName(table, nft.config.SetName)
+	_, err := nft.conn.GetSetByName(table, nft.config.SetNameDrop)
 	return err == nil
 }
 
@@ -195,7 +195,7 @@ func ipInSet(t *testing.T, nft *RealNFT, ip string) bool {
 		Family: nftables.TableFamilyIPv4,
 		Name:   nft.config.TableName,
 	})
-	set, err := nft.conn.GetSetByName(table, nft.config.SetName)
+	set, err := nft.conn.GetSetByName(table, nft.config.SetNameDrop)
 	if err != nil {
 		return false
 	}
