@@ -130,7 +130,7 @@ func TestModifyIP(t *testing.T) {
 	testIP := "192.168.1.1"
 
 	// Тест добавления
-	nft.ModifyIP(false, true, []string{testIP})
+	nft.Modify(false, true, []string{testIP})
 	elements := mockConn.Elements[nft.config.SetNameDrop]
 	if len(elements) < 1 || net.IP(elements[0].Key).String() != testIP {
 		t.Error("IP not added", mockConn)
@@ -138,7 +138,7 @@ func TestModifyIP(t *testing.T) {
 
 	// Тест удаления
 	oldLen := len(mockConn.Elements[nft.config.SetNameDrop])
-	nft.ModifyIP(false, false, []string{testIP + "/32"})
+	nft.Modify(false, false, []string{testIP + "/32"})
 	if len(mockConn.Elements[nft.config.SetNameDrop]) == oldLen {
 		t.Error("IP not removed")
 	}
@@ -150,7 +150,7 @@ func TestIntegration(t *testing.T) {
 		t.Skip("Требуются права root для интеграционных тестов")
 	}
 
-	nft, err := NewRealNFT(cfg)
+	nft, err := New(cfg)
 	assert.NoError(t, err)
 	t.Run("CreateAndList", func(t *testing.T) {
 		nft.Create(false)
@@ -168,13 +168,13 @@ func TestIntegration(t *testing.T) {
 		defer cleanup(t, nft)
 
 		// Добавление
-		nft.ModifyIP(false, true, []string{testIP + "/32"})
+		nft.Modify(false, true, []string{testIP + "/32"})
 		if !ipInSet(t, nft, testIP) {
 			t.Error("IP не добавлен")
 		}
 
 		// Удаление
-		nft.ModifyIP(false, false, []string{testIP + "/32"})
+		nft.Modify(false, false, []string{testIP + "/32"})
 		if ipInSet(t, nft, testIP) {
 			t.Error("IP не удалён")
 		}
@@ -182,6 +182,7 @@ func TestIntegration(t *testing.T) {
 }
 
 func setExists(t *testing.T, nft *RealNFT) bool {
+	t.Helper()
 	table := nft.conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   nft.config.TableName,
@@ -191,6 +192,7 @@ func setExists(t *testing.T, nft *RealNFT) bool {
 }
 
 func ipInSet(t *testing.T, nft *RealNFT, ip string) bool {
+	t.Helper()
 	table := nft.conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
 		Name:   nft.config.TableName,

@@ -24,7 +24,7 @@ func (m *MockNFT) Create(accept bool) error {
 	return m.Called(accept).Error(0)
 }
 
-func (m *MockNFT) ModifyIP(accept, add bool, networks []string) error {
+func (m *MockNFT) Modify(accept, add bool, networks []string) error {
 	return m.Called(accept, add, networks).Error(0)
 }
 

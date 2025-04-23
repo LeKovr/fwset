@@ -19,7 +19,7 @@ type RealNFT struct {
 	conn   NFT
 }
 
-func NewRealNFT(cfg config.Config) (*RealNFT, error) {
+func New(cfg config.Config) (*RealNFT, error) {
 	conn, err := nftables.New()
 	if err != nil {
 		return nil, err
@@ -27,7 +27,7 @@ func NewRealNFT(cfg config.Config) (*RealNFT, error) {
 
 	return &RealNFT{
 		config: cfg,
-		conn:   conn, //&nftables.Conn{},
+		conn:   conn,
 	}, nil
 }
 
@@ -116,7 +116,7 @@ func (r *RealNFT) Destroy() error {
 	return r.conn.Flush()
 }
 
-func (r *RealNFT) ModifyIP(accept, add bool, networks []string) error {
+func (r *RealNFT) Modify(accept, add bool, networks []string) error {
 	conn := r.conn
 	table := conn.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyIPv4,
@@ -161,11 +161,11 @@ func (r *RealNFT) ModifyIP(accept, add bool, networks []string) error {
 }
 
 func (r *RealNFT) Add(accept bool, networks []string) error {
-	return r.ModifyIP(accept, true, networks)
+	return r.Modify(accept, true, networks)
 }
 
 func (r *RealNFT) Remove(accept bool, networks []string) error {
-	return r.ModifyIP(accept, false, networks)
+	return r.Modify(accept, false, networks)
 }
 
 func (r *RealNFT) List(accept bool) ([]string, error) {

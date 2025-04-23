@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/LeKovr/fwset/config"
+	"github.com/LeKovr/fwset/ipset"
 	"github.com/LeKovr/fwset/nftables"
 )
 
@@ -13,10 +14,10 @@ type Config struct {
 	config.Config
 }
 
-// NFTables описывает общий для фаерволов интерфейс.
-type NFTables interface {
+// FWTables описывает общий для фаерволов интерфейс.
+type FWTables interface {
 	Create(accept bool) error
-	ModifyIP(accept, add bool, networks []string) error
+	Modify(accept, add bool, networks []string) error
 	Add(accept bool, networks []string) error
 	Remove(accept bool, networks []string) error
 	List(accept bool) ([]string, error)
@@ -26,19 +27,32 @@ type NFTables interface {
 // Firewall содержит методы, которые проксируются в фаервол.
 type Firewall struct {
 	config  Config
-	handler NFTables
+	handler FWTables
 }
+
+const (
+	FWNameNFTables = "nft"
+	FWNameIPSet    = "ipset"
+)
 
 // ErrNotImplemented возвращается при попытке инициализировать нереализованный фаервол.
 var ErrNotImplemented = errors.New("not implemented")
 
 // New возвращает экземпляр фаервола.
 func New(cfg Config) (*Firewall, error) {
-	if cfg.FW != "nft" {
+	var (
+		handler FWTables
+		err     error
+	)
+	switch cfg.FW {
+	case FWNameNFTables:
+		handler, err = nftables.New(cfg.Config)
+	case FWNameIPSet:
+		handler, err = ipset.New(cfg.Config)
+	default:
 		return nil, ErrNotImplemented
 	}
 
-	handler, err := nftables.NewRealNFT(cfg.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -57,8 +71,8 @@ func (fw *Firewall) Create() error {
 	return fw.handler.Create(false)
 }
 
-func (fw *Firewall) ModifyIP(accept, add bool, networks []string) error {
-	return fw.handler.ModifyIP(accept, add, networks)
+func (fw *Firewall) Modify(accept, add bool, networks []string) error {
+	return fw.handler.Modify(accept, add, networks)
 }
 
 func (fw *Firewall) Add(accept bool, networks []string) error {

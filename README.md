@@ -3,7 +3,7 @@ Firewall set operations
 
 Firewalls supported
 * [x] nftables
-* [ ] ipset
+* [x] ipset
 
 ```
 $ nft list ruleset
