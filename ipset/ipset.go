@@ -124,11 +124,12 @@ func CIDRToEntry(network string) (*ipset.Entry, error) {
 		return nil, err
 	}
 	parts := strings.Split(ipnet.String(), "/")
-	m, err := strconv.Atoi(parts[1])
+	uint64Value, err := strconv.ParseUint(parts[1], 10, 8)
 	if err != nil {
 		return nil, err
 	}
+	uint8Value := uint8(uint64Value)
 
-	return &ipset.Entry{IP: ipnet.IP.To4(), CIDR: uint8(m), Replace: true}, nil
+	return &ipset.Entry{IP: ipnet.IP.To4(), CIDR: uint8Value, Replace: true}, nil
 
 }
