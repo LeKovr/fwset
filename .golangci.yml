@@ -24,6 +24,10 @@ linters:
     - nestif
     - varnamelen
 
+    - mnd       # TODO
+    - revive    # TODO
+    - wrapcheck # TODO
+
     - rowserrcheck # not relevant (SQL)
     - sqlclosecheck # not relevant (SQL)
   settings:
@@ -78,6 +82,7 @@ formatters:
       sections:
         - standard                          # Standard section: captures all standard packages.
         - default                           # Default section: contains all imports that could not be matched to another section type.
+        - localmodule                       # Put imports from local packages in a separate group
 
 issues:
   max-issues-per-linter: 0

@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/LeKovr/fwset/config"
-	"github.com/LeKovr/fwset/utils"
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
+
+	"github.com/LeKovr/fwset/config"
+	"github.com/LeKovr/fwset/utils"
 )
 
 type Config struct {
@@ -113,6 +114,7 @@ func (r *RealNFT) Destroy() error {
 		Family: nftables.TableFamilyIPv4,
 		Name:   r.config.TableName,
 	})
+
 	return r.conn.Flush()
 }
 

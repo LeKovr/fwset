@@ -8,16 +8,17 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/LeKovr/fwset"
 	"github.com/LeKovr/go-kit/config"
 	"github.com/LeKovr/go-kit/slogger"
 	"github.com/LeKovr/go-kit/ver"
+
+	"github.com/LeKovr/fwset"
 )
 
 // Config holds all config vars.
 type Config struct {
 	Command struct {
-		Name string   `choice:"create"                                            choice:"list"            choice:"add" choice:"del" choice:"destroy" description:"Команда"        positional-arg-name:"COMMAND"`
+		Name string   `choice:"create"                                            choice:"list"            choice:"add" choice:"del" choice:"destroy" description:"Команда"        positional-arg-name:"COMMAND"` //nolint:staticcheck
 		IPs  []string `description:"IP адрес (для команд add, del)"               positional-arg-name:"IP"`
 	} `positional-args:"true"`
 	IsAccept bool `description:"Use Accept instead of Drop" env:"ACCEPT" long:"accept"`
@@ -46,7 +47,7 @@ var (
 )
 
 // Run app and exit via given exitFunc.
-func Run(ctx context.Context, exitFunc func(code int)) {
+func Run(_ context.Context, exitFunc func(code int)) {
 	config.SetApplicationVersion(application, version)
 	// Load config
 	var cfg Config
@@ -80,38 +81,40 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 		return
 	}
 
+	err = run(cfg, fw)
+}
+
+func run(cfg Config, fw *fwset.Firewall) error {
+	var err error
+
 	switch cfg.Command.Name {
 	case "create":
-		if err = fw.Create(); err != nil {
-			return
+		if err = fw.Create(); err == nil {
+			fmt.Println("Sets created")
 		}
 
-		fmt.Println("Sets created")
 	case "destroy":
-		fw.Destroy()
+		if err = fw.Destroy(); err == nil {
+			fmt.Println("Sets destroyed")
+		}
 
-		fmt.Println("Sets destroyed")
 	case "add":
 		if len(cfg.Command.IPs) < 1 {
-			err = ErrNoRequiredIPs
-
-			return
+			return ErrNoRequiredIPs
 		}
 
 		if err = fw.Add(cfg.IsAccept, cfg.Command.IPs); err != nil {
-			return
+			return err
 		}
 
 		fmt.Println("Network added")
 	case "del":
 		if len(cfg.Command.IPs) < 1 {
-			err = ErrNoRequiredIPs
-
-			return
+			return ErrNoRequiredIPs
 		}
 
 		if err = fw.Remove(cfg.IsAccept, cfg.Command.IPs); err != nil {
-			return
+			return err
 		}
 
 		fmt.Println("Network removed")
@@ -120,7 +123,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 
 		networks, err = fw.List(true)
 		if err != nil {
-			return
+			return err
 		}
 
 		fmt.Println("Allowed networks:")
@@ -131,7 +134,7 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 
 		networks, err = fw.List(false)
 		if err != nil {
-			return
+			return err
 		}
 
 		fmt.Println("Blocked networks:")
@@ -140,8 +143,8 @@ func Run(ctx context.Context, exitFunc func(code int)) {
 			fmt.Println(network)
 		}
 	default:
-		err = ErrUnknownCommand
-
-		return
+		return ErrUnknownCommand
 	}
+
+	return err
 }

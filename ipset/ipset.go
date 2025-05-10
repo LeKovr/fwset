@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lrh3321/ipset-go"
+
 	"github.com/LeKovr/fwset/config"
 	"github.com/LeKovr/fwset/utils"
-
-	"github.com/lrh3321/ipset-go"
 )
 
 type Config struct {
@@ -32,16 +32,7 @@ func New(cfg config.Config) (*FireWall, error) {
 	}, nil
 }
 
-func (fw *FireWall) setName(is_accept bool) string {
-	if is_accept {
-		return fw.config.SetNameAccept
-	}
-	return fw.config.SetNameDrop
-
-}
-
 func (fw *FireWall) Create(accept bool) error {
-
 	// iptables -I INPUT -m set --match-set fedeban-ip-on src -j ACCEPT
 	// iptables -I INPUT -m set --match-set fedeban-net-off src -j DROP
 	conn := fw.conn
@@ -59,29 +50,33 @@ func (fw *FireWall) Destroy() error {
 	if err := conn.Destroy(fw.config.SetNameAccept); err != nil {
 		return err
 	}
+
 	return conn.Destroy(fw.config.SetNameDrop)
 }
 
 func (fw *FireWall) Modify(accept, add bool, networks []string) error {
 	conn := fw.conn
 	name := fw.setName(accept)
+
 	for _, network := range networks {
 		entry, err := CIDRToEntry(network)
 		if err != nil {
 			return err
 		}
-		//fmt.Printf("Add: %+v\n", entry)
+		// fmt.Printf("Add: %+v\n", entry)
 		// Equivalent to: `ipset add hash01 10.0.0.1`
-		//err = ipset.Add(setname, &ipset.Entry{IP: net.IPv4(10, 0, 0, 1).To4()})
+		// err = ipset.Add(setname, &ipset.Entry{IP: net.IPv4(10, 0, 0, 1).To4()})
 		if add {
 			err = conn.Add(name, entry)
 		} else {
 			err = conn.Del(name, entry)
 		}
+
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -100,36 +95,50 @@ func (fw *FireWall) List(accept bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	rv := make([]string, len(set.Entries))
+
 	for i, e := range set.Entries {
 		network := e.IP.String()
 		if e.CIDR != 32 {
 			network = fmt.Sprintf("%s/%d", network, e.CIDR)
 		}
+
 		rv[i] = network
 	}
+
 	return rv, nil
+}
+
+func (fw *FireWall) setName(is_accept bool) string {
+	if is_accept {
+		return fw.config.SetNameAccept
+	}
+
+	return fw.config.SetNameDrop
 }
 
 // &ipset.Entry{IP: net.IPv4(176, 123, 165, 0).To4()}
 
 func CIDRToEntry(network string) (*ipset.Entry, error) {
-
 	if strings.Contains(network, "-") {
 		// для этого нужен отдельный set типа hash:net,net
 		return nil, fmt.Errorf("IP range not implemented")
 	}
+
 	ipnet, err := utils.ParseNetwork(network) // добавим маску, если не было
 	if err != nil {
 		return nil, err
 	}
+
 	parts := strings.Split(ipnet.String(), "/")
+
 	uint64Value, err := strconv.ParseUint(parts[1], 10, 8)
 	if err != nil {
 		return nil, err
 	}
+
 	uint8Value := uint8(uint64Value)
 
 	return &ipset.Entry{IP: ipnet.IP.To4(), CIDR: uint8Value, Replace: true}, nil
-
 }

@@ -10,7 +10,7 @@ import (
 
 // Config содержит тип и стандартные настройки фаервола.
 type Config struct {
-	FW string `choice:"nft" choice:"ipset" default:"nft" description:"Firewall type" env:"FW" long:"fw"`
+	FW string `choice:"nft" choice:"ipset" default:"nft" description:"Firewall type" env:"FW" long:"fw"` //nolint:staticcheck
 	config.Config
 }
 
@@ -44,6 +44,7 @@ func New(cfg Config) (*Firewall, error) {
 		handler FWTables
 		err     error
 	)
+
 	switch cfg.FW {
 	case FWNameNFTables:
 		handler, err = nftables.New(cfg.Config)
