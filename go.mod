@@ -3,7 +3,7 @@ module github.com/LeKovr/fwset
 go 1.23.6
 
 require (
-	github.com/LeKovr/go-kit/config v0.5.4
+	github.com/LeKovr/go-kit/config v0.5.5
 	github.com/LeKovr/go-kit/slogger v0.15.1
 	github.com/LeKovr/go-kit/ver v0.10.0
 	github.com/alecthomas/assert/v2 v2.11.0
