@@ -9,7 +9,7 @@ require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/google/nftables v0.3.0
 	github.com/lrh3321/ipset-go v0.0.0-20241217055026-1bcc66040f01
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
